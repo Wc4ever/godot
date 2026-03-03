@@ -189,6 +189,9 @@ public:
 	bool is_ignore_error_breaks() const;
 	void set_breakpoint(const String &p_path, int p_line, bool p_enabled);
 	void set_breakpoints(const String &p_path, const Array &p_lines);
+	// Enabled breakpoints grouped by script path (1-based lines), for native debuggers (e.g. the Beef
+	// module) that don't use the remote-GDScript protocol but reuse the shared editor breakpoint store.
+	HashMap<String, Vector<int>> get_breakpoints_by_file() const;
 	void reload_all_scripts();
 	void reload_scripts(const Vector<String> &p_script_paths);
 

@@ -142,6 +142,10 @@
 #include "modules/mono/editor/bindings_generator.h"
 #endif
 
+#if defined(MODULE_BEEF_ENABLED) && defined(TOOLS_ENABLED)
+#include "modules/beef/editor/bindings_generator.h"
+#endif
+
 #ifdef MODULE_GDSCRIPT_ENABLED
 #include "modules/gdscript/gdscript.h"
 #if defined(TOOLS_ENABLED) && !defined(GDSCRIPT_NO_LSP)
@@ -3756,6 +3760,13 @@ Error Main::setup2(bool p_show_boot_logo) {
 	// for the C# docs generation in the bindings.
 	List<String> cmdline_args = OS::get_singleton()->get_cmdline_args();
 	BindingsGenerator::handle_cmdline_args(cmdline_args);
+#endif
+
+#if defined(MODULE_BEEF_ENABLED) && defined(TOOLS_ENABLED)
+	{
+		List<String> cmdline_args_beef = OS::get_singleton()->get_cmdline_args();
+		BeefBindingsGenerator::handle_cmdline_args(cmdline_args_beef);
+	}
 #endif
 
 	if (use_debug_profiler && EngineDebugger::is_active()) {

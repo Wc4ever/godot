@@ -284,6 +284,11 @@ public:
 	virtual bool overrides_external_editor() { return false; }
 	virtual ScriptNameCasing preferred_file_name_casing() const { return SCRIPT_NAME_CASING_SNAKE_CASE; }
 
+	// Directory (res://...) a new script of this language should default into, or empty to keep the
+	// caller-supplied location. Languages that only compile sources from a fixed folder (e.g. Beef)
+	// use this so the create-script dialog points there instead of the scene directory.
+	virtual String get_preferred_script_directory() const { return String(); }
+
 	// Keep enums in sync with:
 	// scene/gui/code_edit.h - CodeEdit::CodeCompletionKind
 	enum CodeCompletionKind {

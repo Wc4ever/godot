@@ -667,6 +667,16 @@ void EditorDebuggerNode::set_breakpoints(const String &p_path, const Array &p_li
 	}
 }
 
+HashMap<String, Vector<int>> EditorDebuggerNode::get_breakpoints_by_file() const {
+	HashMap<String, Vector<int>> result;
+	for (const KeyValue<Breakpoint, bool> &E : breakpoints) {
+		if (E.value) { // enabled only
+			result[E.key.source].push_back(E.key.line);
+		}
+	}
+	return result;
+}
+
 void EditorDebuggerNode::reload_all_scripts() {
 	_for_all(tabs, [&](ScriptEditorDebugger *dbg) {
 		dbg->reload_all_scripts();

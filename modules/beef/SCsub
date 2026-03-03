@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+
+Import("env")
+Import("env_modules")
+
+env_beef = env_modules.Clone()
+
+env_beef.add_source_files(env.modules_sources, "*.cpp")
+env_beef.add_source_files(env.modules_sources, "compiler/*.cpp")
+env_beef.add_source_files(env.modules_sources, "ide/*.cpp")
+
+if env.editor_build:
+    env_beef.add_source_files(env.modules_sources, "editor/*.cpp")

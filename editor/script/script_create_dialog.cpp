@@ -189,6 +189,13 @@ String ScriptCreateDialog::_adjust_file_path(const String &p_base_path) const {
 	String file_name = p_base_path.get_file().get_basename();
 	file_name = EditorNode::adjust_script_name_casing(file_name, language->preferred_file_name_casing());
 	String extension = language->get_extension();
+
+	// Some languages only compile sources from a fixed folder; default new scripts there.
+	String preferred_dir = language->get_preferred_script_directory();
+	if (!preferred_dir.is_empty()) {
+		base_dir = preferred_dir;
+	}
+
 	return base_dir.path_join(file_name + "." + extension);
 }
 
