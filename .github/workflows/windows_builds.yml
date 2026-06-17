@@ -13,55 +13,55 @@ env:
     "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-0.18.0/"
   SCONS_CACHE_MSVC_CONFIG: true
   PYTHONIOENCODING: utf8
+  # Beef toolchain source + the LNK1170 fix (branch fix/link_error). Built from source (there is no
+  # installable Beef SDK action — this is the equivalent of mono's setup-dotnet, but a from-source build).
+  BEEF_REPO: https://github.com/Wc4ever/Beef.git
+  BEEF_REF: 8c4715340a
 
 jobs:
   build-windows:
-    # Windows 10 with latest image
-    runs-on: windows-latest
+    # Pinned (not windows-latest) for a reproducible MSVC toolset: the Beef toolchain links IDEHelper
+    # against a prebuilt LLVM that needs a matching recent MSVC STL, so a floating image that flips to a
+    # newer/older toolset could break that link. GitHub Windows runners are Windows Server (not Win 10);
+    # MSVC binaries built here still run on Windows 10+.
+    runs-on: windows-2022
     name: ${{ matrix.name }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        # Beef-enabled builds, mirroring how linux_builds.yml adds Mono cells. The Editor cell also
+        # builds the Beef toolchain and assembles bin/BeefBundle (the self-contained BeefBuild/IDEHelper
+        # the editor needs); templates don't need it (an exported game's runtime only loads the scripts).
         include:
-          - name: Editor (target=editor)
-            cache-name: windows-editor
+          - name: Editor w/ Beef (target=editor)
+            cache-name: windows-editor-beef
             target: editor
-            scons-flags: >-
-              windows_subsystem=console
-              vsproj=yes
-              vsproj_gen_only=no
-            bin: ./bin/godot.windows.editor.x86_64.exe
+            scons-flags: module_beef_enabled=yes windows_subsystem=console
+            bin: ./bin/godot.windows.editor.x86_64.beef.exe
             compiler: msvc
+            build-beef: true
+            bundle: true
 
-          - name: Editor w/ clang-cl (target=editor, use_llvm=yes)
-            cache-name: windows-editor-clang
-            target: editor
-            scons-flags: >-
-              windows_subsystem=console
-              use_llvm=yes
-            bin: ./bin/godot.windows.editor.x86_64.llvm.exe
-            compiler: clang
-
-          - name: Template (target=template_release)
-            cache-name: windows-template
+          - name: Template w/ Beef, release (target=template_release)
+            cache-name: windows-template-beef
             target: template_release
-            bin: ./bin/godot.windows.template_release.x86_64.console.exe
+            scons-flags: module_beef_enabled=yes
+            bin: ./bin/godot.windows.template_release.x86_64.beef.console.exe
             compiler: msvc
+            build-beef: true
 
-          - name: Template w/ GCC (target=template_release, use_mingw=yes)
-            cache-name: windows-template-gcc
-            # MinGW takes MUCH longer to compile; save time by only targeting Template.
-            target: template_release
-            scons-flags: use_mingw=yes
-            bin: ./bin/godot.windows.template_release.x86_64.console.exe
-            compiler: gcc
+          - name: Template w/ Beef, debug (target=template_debug)
+            cache-name: windows-template-beef-debug
+            target: template_debug
+            scons-flags: module_beef_enabled=yes
+            bin: ./bin/godot.windows.template_debug.x86_64.beef.console.exe
+            compiler: msvc
+            build-beef: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
@@ -89,7 +89,7 @@ jobs:
         with:
           repo: godotengine/godot-angle-static
           version: tags/chromium/6601.2
-          file: godot-angle-static-x86_64-${{ matrix.compiler == 'gcc' && 'gcc' || 'msvc' }}-release.zip
+          file: godot-angle-static-x86_64-msvc-release.zip
           target: angle/angle.zip
 
       - name: Extract pre-built ANGLE static libraries
@@ -119,9 +119,120 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
 
+      # ---- Beef toolchain + bundle (Editor cell only; mirrors mono's setup-dotnet/build_assemblies) ----
+      # The toolchain (BeefBuild + IDEHelper) is built from Wc4ever/Beef and assembled into bin/BeefBundle.
+      # See modules/beef/compiler + make_beef_bundle.bat for the local equivalent.
+      # STATUS: first draft — TUNE on the runner: the MSVC toolset (the prebuilt LLVM needs a recent STL)
+      # and the exact dist paths the Beef MSBuild projects emit to (handled defensively by searching).
+      - name: Set up MSVC for the Beef toolchain
+        if: matrix.bundle
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Clone Beef toolchain source (pinned)
+        if: matrix.bundle
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none "$env:BEEF_REPO" thirdparty/beef
+          git -C thirdparty/beef checkout $env:BEEF_REF
+
+      - name: Cache Beef LLVM deps
+        if: matrix.bundle
+        id: beef-deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            thirdparty/beef/extern
+            thirdparty/beef/BeefDep3_Done.txt
+          key: beefdep3-${{ env.BEEF_REF }}
+
+      - name: Download Beef LLVM deps
+        if: matrix.bundle && steps.beef-deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        working-directory: thirdparty/beef
+        run: |
+          if (-not (Test-Path BeefDep3_Done.txt)) {
+            curl.exe -L -O https://www.beeflang.org/BeefDep3.zip
+            tar.exe -xf BeefDep3.zip
+            Remove-Item BeefDep3.zip
+          }
+
+      - name: Cache Beef build outputs
+        if: matrix.bundle
+        id: beef-build-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            thirdparty/beef/IDE/dist
+            thirdparty/beef/IDEHelper
+            thirdparty/beef/BeefySysLib
+            thirdparty/beef/BeefBoot
+            thirdparty/beef/BeefRT
+          key: beefbuild-${{ env.BEEF_REF }}-${{ runner.os }}
+
+      - name: Build Beef libs (BeefySysLib, IDEHelper, BeefBoot, BeefRT)
+        if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        working-directory: thirdparty/beef
+        run: |
+          msbuild "BeefySysLib\BeefySysLib_static.vcxproj" /p:Configuration=Release /p:Platform=x64 /m /nologo /verbosity:minimal || exit /b 1
+          msbuild "IDEHelper\IDEHelper.vcxproj" /p:Configuration=Release /p:Platform=x64 /m /nologo /verbosity:minimal || exit /b 1
+          msbuild "BeefBoot\BeefBoot.vcxproj" /p:Configuration=Release /p:Platform=x64 /m /nologo /verbosity:minimal || exit /b 1
+          msbuild "BeefRT\BeefRT.vcxproj" /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /m /nologo /verbosity:minimal || exit /b 1
+
+      - name: Stage Beef artifacts into IDE/dist
+        if: matrix.bundle
+        shell: pwsh
+        run: |
+          $beef = "thirdparty/beef"
+          $dist = Join-Path $beef "IDE/dist"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          function Stage([string]$pattern, [string]$dest) {
+            $f = Get-ChildItem -Path $beef -Recurse -Filter $pattern -File -ErrorAction SilentlyContinue |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($f) { Copy-Item $f.FullName (Join-Path $dist $dest) -Force; Write-Host "staged $($f.FullName) -> $dest" }
+            else    { Write-Host "::warning::Beef artifact not found: $pattern" }
+          }
+          Stage "IDEHelper64.dll" "IDEHelper64.dll"
+          Stage "IDEHelper64.lib" "IDEHelper64.lib"
+          Stage "BeefySysLib_static.lib" "BeefySysLib64.lib"
+          Stage "BeefBoot.exe" "BeefBoot.exe"
+          Stage "Beef042RT64.lib" "Beef042RT64.lib"
+          Stage "Beef042RT64.dll" "Beef042RT64.dll"
+          $lld = Get-ChildItem -Path $beef -Recurse -Filter "lld-link.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($lld) {
+            $llvmDist = Join-Path $dist "llvm"
+            if (-not (Test-Path $llvmDist)) { Copy-Item $lld.Directory.FullName $llvmDist -Recurse -Force }
+          } else { Write-Host "::warning::lld-link.exe not found" }
+
+      - name: Build + assemble BeefBundle
+        if: matrix.bundle
+        shell: cmd
+        run: |
+          set BEEF=%CD%\thirdparty\beef
+          set DIST=%BEEF%\IDE\dist
+          set BUNDLE=%CD%\bin\BeefBundle
+          pushd "%BEEF%"
+          "%DIST%\BeefBoot.exe" -O0 "--out=%DIST%\BeefBuild_boot.exe" --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=IDE\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program "--linkparams=Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib %DIST%\Beef042RT64.lib %DIST%\IDEHelper64.lib %DIST%\BeefySysLib64.lib" || (popd & exit /b 1)
+          popd
+          if exist "%BUNDLE%" rmdir /s /q "%BUNDLE%"
+          mkdir "%BUNDLE%\bin"
+          mkdir "%BUNDLE%\BeefLibs"
+          copy /Y "%DIST%\BeefBuild_boot.exe" "%BUNDLE%\bin\BeefBuild.exe" || exit /b 1
+          copy /Y "%DIST%\Beef042RT64.lib" "%BUNDLE%\bin\" || exit /b 1
+          copy /Y "%DIST%\Beef042RT64.dll" "%BUNDLE%\bin\" || exit /b 1
+          copy /Y "%DIST%\IDEHelper64.dll" "%BUNDLE%\bin\IDEHelper64.dll" || exit /b 1
+          xcopy /E /I /Y /Q "%DIST%\llvm" "%BUNDLE%\bin\llvm" || exit /b 1
+          xcopy /E /I /Y /Q "%BEEF%\BeefLibs\corlib" "%BUNDLE%\BeefLibs\corlib" || exit /b 1
+          > "%BUNDLE%\bin\BeefConfig.toml" echo Version = 1
+          >> "%BUNDLE%\bin\BeefConfig.toml" echo UnversionedLibDirs = ["../BeefLibs"]
+
       - name: Prepare artifact
         if: matrix.compiler == 'msvc'
         run: |
+          # Strip engine link leftovers from bin/ top level. No -Recurse, so bin/BeefBundle (incl. its
+          # Beef042RT64.lib needed at runtime by the in-process build) is preserved.
           Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
 
       - name: Upload artifact

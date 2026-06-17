@@ -13,27 +13,32 @@ jobs:
     name: 📊 Static checks
     uses: ./.github/workflows/static_checks.yml
 
-  # Second stage: Run all the builds and some of the tests.
+  # Second stage: Run the builds for the platforms godot x beef supports (Windows + Web).
+  #
+  # Android / iOS / macOS / Linux are TEMPORARILY DISABLED (commented out below): the Beef module only
+  # supports Windows and Web (see modules/beef/config.py can_build). To re-enable a platform once Beef
+  # can load a compiled library there (Linux/macOS dlopen, etc.), just uncomment its block. The platform
+  # workflows still exist and can also be run manually via the Actions tab (workflow_dispatch).
 
-  android-build:
-    name: 🤖 Android
-    needs: static-checks
-    uses: ./.github/workflows/android_builds.yml
+  # android-build:
+  #   name: 🤖 Android
+  #   needs: static-checks
+  #   uses: ./.github/workflows/android_builds.yml
 
-  ios-build:
-    name: 🍏 iOS
-    needs: static-checks
-    uses: ./.github/workflows/ios_builds.yml
+  # ios-build:
+  #   name: 🍏 iOS
+  #   needs: static-checks
+  #   uses: ./.github/workflows/ios_builds.yml
 
-  linux-build:
-    name: 🐧 Linux
-    needs: static-checks
-    uses: ./.github/workflows/linux_builds.yml
+  # linux-build:
+  #   name: 🐧 Linux
+  #   needs: static-checks
+  #   uses: ./.github/workflows/linux_builds.yml
 
-  macos-build:
-    name: 🍎 macOS
-    needs: static-checks
-    uses: ./.github/workflows/macos_builds.yml
+  # macos-build:
+  #   name: 🍎 macOS
+  #   needs: static-checks
+  #   uses: ./.github/workflows/macos_builds.yml
 
   windows-build:
     name: 🏁 Windows
