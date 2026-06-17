@@ -1,3 +1,33 @@
+/**************************************************************************/
+/*  beef_compiler.cpp                                                     */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 #include "beef_compiler.h"
 
 #include "core/config/project_settings.h"
@@ -141,7 +171,7 @@ void BeefCompiler::ensure_project_files(const String &p_workspace_dir, const Str
 	// the Debug allocator, so raw-allocation leaks are still caught at shutdown. The object scanner is
 	// incompatible with this interop: live objects live behind a C++ void* it can't see, engine wrappers
 	// are retained for the process lifetime by design, and it access-violates on corlib's own FFIType*
-	// statics — so it crashes on by-design retention, not on real leaks of ours.
+	// statistics — so it crashes on by-design retention, not on real leaks of ours.
 	String space_toml = p_workspace_dir.path_join("BeefSpace.toml");
 	// AllocType=CRT + CLibType=Dynamic + no object-debug-flags also matches the hot-reload baseline's
 	// codegen, so IDEHelper deltas resolve against the loaded DLL. (Release stays static for export.)
@@ -674,8 +704,8 @@ bool BeefCompiler::build_wasm_side_module(const String &p_workspace_dir, const S
 	}
 	if (objs.size() == script_objs) {
 		r_errors.push_back("No Beef wasm runtime objects found in '" + p_wasm_runtime_dir.get_file() +
-						   "'. Set beef/editor/web/wasm_runtime_dir to the folder holding the Beef wasm runtime "
-						   "(.o/.a built via Beef's wasm/build_wasm.bat).");
+				"'. Set beef/editor/web/wasm_runtime_dir to the folder holding the Beef wasm runtime "
+				"(.o/.a built via Beef's wasm/build_wasm.bat).");
 		return false;
 	}
 
@@ -702,7 +732,7 @@ bool BeefCompiler::build_wasm_side_module(const String &p_workspace_dir, const S
 			OS::get_singleton()->execute(emcc, cargs, nullptr, &ec, true);
 			if (!FileAccess::exists(stub_o)) {
 				r_errors.push_back("emcc failed to compile the BeefStop stub (exit " + itos(ec) + ", emcc: " +
-								   emcc + "). The wasm link would fail with 'undefined symbol BeefStop'.");
+						emcc + "). The wasm link would fail with 'undefined symbol BeefStop'.");
 				return false;
 			}
 			objs.push_back(stub_o);

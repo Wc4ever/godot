@@ -1,7 +1,36 @@
+/**************************************************************************/
+/*  beef_script.cpp                                                       */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 #include "beef_script.h"
 
 #include "compiler/beef_compiler.h"
-#include "ide/beef_ide_helper.h"
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
@@ -16,6 +45,7 @@
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
+#include "ide/beef_ide_helper.h"
 
 #ifdef WINDOWS_ENABLED
 // Forward-declared to avoid pulling <windows.h> into this large TU (it conflicts with engine code).
@@ -41,7 +71,7 @@ static void _beef_method_bind_ptrcall(void *p_bind, void *p_obj, const void **p_
 	reinterpret_cast<MethodBind *>(p_bind)->ptrcall(reinterpret_cast<Object *>(p_obj), p_args, r_ret);
 }
 
-// ─── String marshalling ──────────────────────────────────────────────────────
+// ─── String marshaling ──────────────────────────────────────────────────────
 // A Godot String is a single pointer; the Beef side reserves storage and these
 // functions placement-construct / read / destruct an engine String in it so it
 // can be passed to ptrcall (which expects a pointer to a live String).
@@ -70,7 +100,7 @@ static void _beef_string_destroy(void *p_str) {
 	reinterpret_cast<String *>(p_str)->~String();
 }
 
-// ─── StringName marshalling ──────────────────────────────────────────────────
+// ─── StringName marshaling ──────────────────────────────────────────────────
 // Same shape as String (PtrToArgDirect, one pointer); read/written as UTF-8.
 
 static void _beef_stringname_new_utf8(void *p_dest, const char *p_utf8) {
@@ -93,18 +123,18 @@ static void _beef_stringname_destroy(void *p_sn) {
 	reinterpret_cast<StringName *>(p_sn)->~StringName();
 }
 
-// NodePath: one-pointer engine type, marshalled as text like String/StringName (NodePath has an
+// NodePath: one-pointer engine type, marshaled as text like String/StringName (NodePath has an
 // explicit operator String()).
 static void _beef_nodepath_new_utf8(void *p_dest, const char *p_utf8) {
 	memnew_placement(p_dest, NodePath(String::utf8(p_utf8)));
 }
 
 static int64_t _beef_nodepath_utf8_len(const void *p_np) {
-	return ((String)*reinterpret_cast<const NodePath *>(p_np)).utf8().length();
+	return ((String) * reinterpret_cast<const NodePath *>(p_np)).utf8().length();
 }
 
 static void _beef_nodepath_to_utf8(const void *p_np, char *p_buf, int64_t p_len) {
-	CharString cs = ((String)*reinterpret_cast<const NodePath *>(p_np)).utf8();
+	CharString cs = ((String) * reinterpret_cast<const NodePath *>(p_np)).utf8();
 	int64_t n = MIN(p_len, (int64_t)cs.length());
 	if (n > 0) {
 		memcpy(p_buf, cs.get_data(), (size_t)n);
@@ -118,7 +148,7 @@ static void _beef_nodepath_destroy(void *p_np) {
 // ─── Object helpers ──────────────────────────────────────────────────────────
 
 // Writes the runtime class name (UTF-8) of p_obj into p_buf; returns the full name length.
-// Used to create a Beef wrapper of the object's actual type when marshalling an Object* return.
+// Used to create a Beef wrapper of the object's actual type when marshaling an Object* return.
 static int64_t _beef_object_class_name(const void *p_obj, char *p_buf, int64_t p_buflen) {
 	if (!p_obj) {
 		return 0;
@@ -266,7 +296,7 @@ static void _beef_call_utility(const char *p_name, const void **p_args, int32_t 
 	}
 }
 
-// ─── Variant marshalling ─────────────────────────────────────────────────────
+// ─── Variant marshaling ─────────────────────────────────────────────────────
 // The Beef Variant is an opaque buffer the size of the engine Variant, so it crosses ptrcall
 // by value. These functions convert between a Variant and concrete values; the Variant owns its
 // resources (string/array/object), so the Beef side destroys Variants it holds.
@@ -338,47 +368,118 @@ static void _beef_signal_destroy(void *p_s) {
 // and laid out to match the engine, so p_src/p_out point straight at the engine type's bytes.
 static void _beef_variant_from_typed(void *p_dest, int64_t p_type, const void *p_src) {
 	switch ((Variant::Type)p_type) {
-		case Variant::VECTOR2: memnew_placement(p_dest, Variant(*(const Vector2 *)p_src)); break;
-		case Variant::VECTOR2I: memnew_placement(p_dest, Variant(*(const Vector2i *)p_src)); break;
-		case Variant::RECT2: memnew_placement(p_dest, Variant(*(const Rect2 *)p_src)); break;
-		case Variant::RECT2I: memnew_placement(p_dest, Variant(*(const Rect2i *)p_src)); break;
-		case Variant::VECTOR3: memnew_placement(p_dest, Variant(*(const Vector3 *)p_src)); break;
-		case Variant::VECTOR3I: memnew_placement(p_dest, Variant(*(const Vector3i *)p_src)); break;
-		case Variant::TRANSFORM2D: memnew_placement(p_dest, Variant(*(const Transform2D *)p_src)); break;
-		case Variant::VECTOR4: memnew_placement(p_dest, Variant(*(const Vector4 *)p_src)); break;
-		case Variant::VECTOR4I: memnew_placement(p_dest, Variant(*(const Vector4i *)p_src)); break;
-		case Variant::PLANE: memnew_placement(p_dest, Variant(*(const Plane *)p_src)); break;
-		case Variant::QUATERNION: memnew_placement(p_dest, Variant(*(const Quaternion *)p_src)); break;
-		case Variant::AABB: memnew_placement(p_dest, Variant(*(const AABB *)p_src)); break;
-		case Variant::BASIS: memnew_placement(p_dest, Variant(*(const Basis *)p_src)); break;
-		case Variant::TRANSFORM3D: memnew_placement(p_dest, Variant(*(const Transform3D *)p_src)); break;
-		case Variant::PROJECTION: memnew_placement(p_dest, Variant(*(const Projection *)p_src)); break;
-		case Variant::COLOR: memnew_placement(p_dest, Variant(*(const Color *)p_src)); break;
-		case Variant::RID: memnew_placement(p_dest, Variant(*(const RID *)p_src)); break;
-		default: memnew_placement(p_dest, Variant()); break;
+		case Variant::VECTOR2:
+			memnew_placement(p_dest, Variant(*(const Vector2 *)p_src));
+			break;
+		case Variant::VECTOR2I:
+			memnew_placement(p_dest, Variant(*(const Vector2i *)p_src));
+			break;
+		case Variant::RECT2:
+			memnew_placement(p_dest, Variant(*(const Rect2 *)p_src));
+			break;
+		case Variant::RECT2I:
+			memnew_placement(p_dest, Variant(*(const Rect2i *)p_src));
+			break;
+		case Variant::VECTOR3:
+			memnew_placement(p_dest, Variant(*(const Vector3 *)p_src));
+			break;
+		case Variant::VECTOR3I:
+			memnew_placement(p_dest, Variant(*(const Vector3i *)p_src));
+			break;
+		case Variant::TRANSFORM2D:
+			memnew_placement(p_dest, Variant(*(const Transform2D *)p_src));
+			break;
+		case Variant::VECTOR4:
+			memnew_placement(p_dest, Variant(*(const Vector4 *)p_src));
+			break;
+		case Variant::VECTOR4I:
+			memnew_placement(p_dest, Variant(*(const Vector4i *)p_src));
+			break;
+		case Variant::PLANE:
+			memnew_placement(p_dest, Variant(*(const Plane *)p_src));
+			break;
+		case Variant::QUATERNION:
+			memnew_placement(p_dest, Variant(*(const Quaternion *)p_src));
+			break;
+		case Variant::AABB:
+			memnew_placement(p_dest, Variant(*(const AABB *)p_src));
+			break;
+		case Variant::BASIS:
+			memnew_placement(p_dest, Variant(*(const Basis *)p_src));
+			break;
+		case Variant::TRANSFORM3D:
+			memnew_placement(p_dest, Variant(*(const Transform3D *)p_src));
+			break;
+		case Variant::PROJECTION:
+			memnew_placement(p_dest, Variant(*(const Projection *)p_src));
+			break;
+		case Variant::COLOR:
+			memnew_placement(p_dest, Variant(*(const Color *)p_src));
+			break;
+		case Variant::RID:
+			memnew_placement(p_dest, Variant(*(const RID *)p_src));
+			break;
+		default:
+			memnew_placement(p_dest, Variant());
+			break;
 	}
 }
 static void _beef_variant_as_typed(const void *p_v, int64_t p_type, void *p_out) {
 	const Variant *v = reinterpret_cast<const Variant *>(p_v);
 	switch ((Variant::Type)p_type) {
-		case Variant::VECTOR2: *(Vector2 *)p_out = *v; break;
-		case Variant::VECTOR2I: *(Vector2i *)p_out = *v; break;
-		case Variant::RECT2: *(Rect2 *)p_out = *v; break;
-		case Variant::RECT2I: *(Rect2i *)p_out = *v; break;
-		case Variant::VECTOR3: *(Vector3 *)p_out = *v; break;
-		case Variant::VECTOR3I: *(Vector3i *)p_out = *v; break;
-		case Variant::TRANSFORM2D: *(Transform2D *)p_out = *v; break;
-		case Variant::VECTOR4: *(Vector4 *)p_out = *v; break;
-		case Variant::VECTOR4I: *(Vector4i *)p_out = *v; break;
-		case Variant::PLANE: *(Plane *)p_out = *v; break;
-		case Variant::QUATERNION: *(Quaternion *)p_out = *v; break;
-		case Variant::AABB: *(AABB *)p_out = *v; break;
-		case Variant::BASIS: *(Basis *)p_out = *v; break;
-		case Variant::TRANSFORM3D: *(Transform3D *)p_out = *v; break;
-		case Variant::PROJECTION: *(Projection *)p_out = *v; break;
-		case Variant::COLOR: *(Color *)p_out = *v; break;
-		case Variant::RID: *(RID *)p_out = *v; break;
-		default: break;
+		case Variant::VECTOR2:
+			*(Vector2 *)p_out = *v;
+			break;
+		case Variant::VECTOR2I:
+			*(Vector2i *)p_out = *v;
+			break;
+		case Variant::RECT2:
+			*(Rect2 *)p_out = *v;
+			break;
+		case Variant::RECT2I:
+			*(Rect2i *)p_out = *v;
+			break;
+		case Variant::VECTOR3:
+			*(Vector3 *)p_out = *v;
+			break;
+		case Variant::VECTOR3I:
+			*(Vector3i *)p_out = *v;
+			break;
+		case Variant::TRANSFORM2D:
+			*(Transform2D *)p_out = *v;
+			break;
+		case Variant::VECTOR4:
+			*(Vector4 *)p_out = *v;
+			break;
+		case Variant::VECTOR4I:
+			*(Vector4i *)p_out = *v;
+			break;
+		case Variant::PLANE:
+			*(Plane *)p_out = *v;
+			break;
+		case Variant::QUATERNION:
+			*(Quaternion *)p_out = *v;
+			break;
+		case Variant::AABB:
+			*(AABB *)p_out = *v;
+			break;
+		case Variant::BASIS:
+			*(Basis *)p_out = *v;
+			break;
+		case Variant::TRANSFORM3D:
+			*(Transform3D *)p_out = *v;
+			break;
+		case Variant::PROJECTION:
+			*(Projection *)p_out = *v;
+			break;
+		case Variant::COLOR:
+			*(Color *)p_out = *v;
+			break;
+		case Variant::RID:
+			*(RID *)p_out = *v;
+			break;
+		default:
+			break;
 	}
 }
 
@@ -410,7 +511,7 @@ static void _beef_variant_from_nodepath(void *p_dest, const char *p_utf8) {
 // Packed arrays: contiguous POD element buffers. One generic trio (keyed on Variant::Type) boxes a
 // Beef heap array into a Variant, reports the element count, and copies elements back out. The Beef
 // element structs are CRepr layout-matched, so the buffers memcpy directly. PackedStringArray is
-// excluded (its elements need per-string marshalling).
+// excluded (its elements need per-string marshaling).
 template <typename TArr, typename TElem>
 static void _packed_box(void *p_dest, const void *p_data, int64_t p_count) {
 	TArr arr;
@@ -431,46 +532,95 @@ static void _packed_unbox(const Variant *p_v, void *p_out, int64_t p_count) {
 
 static void _beef_variant_from_packed(void *p_dest, int64_t p_type, const void *p_data, int64_t p_count) {
 	switch ((Variant::Type)p_type) {
-		case Variant::PACKED_BYTE_ARRAY: _packed_box<PackedByteArray, uint8_t>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_INT32_ARRAY: _packed_box<PackedInt32Array, int32_t>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_INT64_ARRAY: _packed_box<PackedInt64Array, int64_t>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_FLOAT32_ARRAY: _packed_box<PackedFloat32Array, float>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_FLOAT64_ARRAY: _packed_box<PackedFloat64Array, double>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_VECTOR2_ARRAY: _packed_box<PackedVector2Array, Vector2>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_VECTOR3_ARRAY: _packed_box<PackedVector3Array, Vector3>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_COLOR_ARRAY: _packed_box<PackedColorArray, Color>(p_dest, p_data, p_count); break;
-		case Variant::PACKED_VECTOR4_ARRAY: _packed_box<PackedVector4Array, Vector4>(p_dest, p_data, p_count); break;
-		default: memnew_placement(p_dest, Variant()); break;
+		case Variant::PACKED_BYTE_ARRAY:
+			_packed_box<PackedByteArray, uint8_t>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_INT32_ARRAY:
+			_packed_box<PackedInt32Array, int32_t>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_INT64_ARRAY:
+			_packed_box<PackedInt64Array, int64_t>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_FLOAT32_ARRAY:
+			_packed_box<PackedFloat32Array, float>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_FLOAT64_ARRAY:
+			_packed_box<PackedFloat64Array, double>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_VECTOR2_ARRAY:
+			_packed_box<PackedVector2Array, Vector2>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_VECTOR3_ARRAY:
+			_packed_box<PackedVector3Array, Vector3>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_COLOR_ARRAY:
+			_packed_box<PackedColorArray, Color>(p_dest, p_data, p_count);
+			break;
+		case Variant::PACKED_VECTOR4_ARRAY:
+			_packed_box<PackedVector4Array, Vector4>(p_dest, p_data, p_count);
+			break;
+		default:
+			memnew_placement(p_dest, Variant());
+			break;
 	}
 }
 static int64_t _beef_variant_packed_size(const void *p_v, int64_t p_type) {
 	const Variant *v = reinterpret_cast<const Variant *>(p_v);
 	switch ((Variant::Type)p_type) {
-		case Variant::PACKED_BYTE_ARRAY: return v->operator PackedByteArray().size();
-		case Variant::PACKED_INT32_ARRAY: return v->operator PackedInt32Array().size();
-		case Variant::PACKED_INT64_ARRAY: return v->operator PackedInt64Array().size();
-		case Variant::PACKED_FLOAT32_ARRAY: return v->operator PackedFloat32Array().size();
-		case Variant::PACKED_FLOAT64_ARRAY: return v->operator PackedFloat64Array().size();
-		case Variant::PACKED_VECTOR2_ARRAY: return v->operator PackedVector2Array().size();
-		case Variant::PACKED_VECTOR3_ARRAY: return v->operator PackedVector3Array().size();
-		case Variant::PACKED_COLOR_ARRAY: return v->operator PackedColorArray().size();
-		case Variant::PACKED_VECTOR4_ARRAY: return v->operator PackedVector4Array().size();
-		default: return 0;
+		case Variant::PACKED_BYTE_ARRAY:
+			return v->operator PackedByteArray().size();
+		case Variant::PACKED_INT32_ARRAY:
+			return v->operator PackedInt32Array().size();
+		case Variant::PACKED_INT64_ARRAY:
+			return v->operator PackedInt64Array().size();
+		case Variant::PACKED_FLOAT32_ARRAY:
+			return v->operator PackedFloat32Array().size();
+		case Variant::PACKED_FLOAT64_ARRAY:
+			return v->operator PackedFloat64Array().size();
+		case Variant::PACKED_VECTOR2_ARRAY:
+			return v->operator PackedVector2Array().size();
+		case Variant::PACKED_VECTOR3_ARRAY:
+			return v->operator PackedVector3Array().size();
+		case Variant::PACKED_COLOR_ARRAY:
+			return v->operator PackedColorArray().size();
+		case Variant::PACKED_VECTOR4_ARRAY:
+			return v->operator PackedVector4Array().size();
+		default:
+			return 0;
 	}
 }
 static void _beef_variant_packed_copy(const void *p_v, int64_t p_type, void *p_out, int64_t p_count) {
 	const Variant *v = reinterpret_cast<const Variant *>(p_v);
 	switch ((Variant::Type)p_type) {
-		case Variant::PACKED_BYTE_ARRAY: _packed_unbox<PackedByteArray, uint8_t>(v, p_out, p_count); break;
-		case Variant::PACKED_INT32_ARRAY: _packed_unbox<PackedInt32Array, int32_t>(v, p_out, p_count); break;
-		case Variant::PACKED_INT64_ARRAY: _packed_unbox<PackedInt64Array, int64_t>(v, p_out, p_count); break;
-		case Variant::PACKED_FLOAT32_ARRAY: _packed_unbox<PackedFloat32Array, float>(v, p_out, p_count); break;
-		case Variant::PACKED_FLOAT64_ARRAY: _packed_unbox<PackedFloat64Array, double>(v, p_out, p_count); break;
-		case Variant::PACKED_VECTOR2_ARRAY: _packed_unbox<PackedVector2Array, Vector2>(v, p_out, p_count); break;
-		case Variant::PACKED_VECTOR3_ARRAY: _packed_unbox<PackedVector3Array, Vector3>(v, p_out, p_count); break;
-		case Variant::PACKED_COLOR_ARRAY: _packed_unbox<PackedColorArray, Color>(v, p_out, p_count); break;
-		case Variant::PACKED_VECTOR4_ARRAY: _packed_unbox<PackedVector4Array, Vector4>(v, p_out, p_count); break;
-		default: break;
+		case Variant::PACKED_BYTE_ARRAY:
+			_packed_unbox<PackedByteArray, uint8_t>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_INT32_ARRAY:
+			_packed_unbox<PackedInt32Array, int32_t>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_INT64_ARRAY:
+			_packed_unbox<PackedInt64Array, int64_t>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_FLOAT32_ARRAY:
+			_packed_unbox<PackedFloat32Array, float>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_FLOAT64_ARRAY:
+			_packed_unbox<PackedFloat64Array, double>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_VECTOR2_ARRAY:
+			_packed_unbox<PackedVector2Array, Vector2>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_VECTOR3_ARRAY:
+			_packed_unbox<PackedVector3Array, Vector3>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_COLOR_ARRAY:
+			_packed_unbox<PackedColorArray, Color>(v, p_out, p_count);
+			break;
+		case Variant::PACKED_VECTOR4_ARRAY:
+			_packed_unbox<PackedVector4Array, Vector4>(v, p_out, p_count);
+			break;
+		default:
+			break;
 	}
 }
 
@@ -496,51 +646,62 @@ static void _packed_raw_copy(const void *p_p, void *p_out, int64_t p_count) {
 	}
 }
 
-#define BEEF_PACKED_DISPATCH(MACRO)                                  \
-	MACRO(PACKED_BYTE_ARRAY, PackedByteArray, uint8_t)               \
-	MACRO(PACKED_INT32_ARRAY, PackedInt32Array, int32_t)            \
-	MACRO(PACKED_INT64_ARRAY, PackedInt64Array, int64_t)           \
-	MACRO(PACKED_FLOAT32_ARRAY, PackedFloat32Array, float)         \
-	MACRO(PACKED_FLOAT64_ARRAY, PackedFloat64Array, double)       \
-	MACRO(PACKED_VECTOR2_ARRAY, PackedVector2Array, Vector2)     \
-	MACRO(PACKED_VECTOR3_ARRAY, PackedVector3Array, Vector3)    \
-	MACRO(PACKED_VECTOR4_ARRAY, PackedVector4Array, Vector4)   \
+#define BEEF_PACKED_DISPATCH(MACRO)                          \
+	MACRO(PACKED_BYTE_ARRAY, PackedByteArray, uint8_t)       \
+	MACRO(PACKED_INT32_ARRAY, PackedInt32Array, int32_t)     \
+	MACRO(PACKED_INT64_ARRAY, PackedInt64Array, int64_t)     \
+	MACRO(PACKED_FLOAT32_ARRAY, PackedFloat32Array, float)   \
+	MACRO(PACKED_FLOAT64_ARRAY, PackedFloat64Array, double)  \
+	MACRO(PACKED_VECTOR2_ARRAY, PackedVector2Array, Vector2) \
+	MACRO(PACKED_VECTOR3_ARRAY, PackedVector3Array, Vector3) \
+	MACRO(PACKED_VECTOR4_ARRAY, PackedVector4Array, Vector4) \
 	MACRO(PACKED_COLOR_ARRAY, PackedColorArray, Color)
 
 static void _beef_packed_new(void *p_dest, int64_t p_type, const void *p_data, int64_t p_count) {
 	switch ((Variant::Type)p_type) {
-#define _BPN(VT, TArr, TElem) \
-	case Variant::VT: _packed_raw_new<TArr, TElem>(p_dest, p_data, p_count); break;
+#define _BPN(VT, TArr, TElem)                                  \
+	case Variant::VT:                                          \
+		_packed_raw_new<TArr, TElem>(p_dest, p_data, p_count); \
+		break;
 		BEEF_PACKED_DISPATCH(_BPN)
 #undef _BPN
-		default: break;
+		default:
+			break;
 	}
 }
 static int64_t _beef_packed_size(const void *p_p, int64_t p_type) {
 	switch ((Variant::Type)p_type) {
 #define _BPS(VT, TArr, TElem) \
-	case Variant::VT: return (int64_t)reinterpret_cast<const TArr *>(p_p)->size();
+	case Variant::VT:         \
+		return (int64_t)reinterpret_cast<const TArr *>(p_p)->size();
 		BEEF_PACKED_DISPATCH(_BPS)
 #undef _BPS
-		default: return 0;
+		default:
+			return 0;
 	}
 }
 static void _beef_packed_copy(const void *p_p, int64_t p_type, void *p_out, int64_t p_count) {
 	switch ((Variant::Type)p_type) {
-#define _BPC(VT, TArr, TElem) \
-	case Variant::VT: _packed_raw_copy<TArr, TElem>(p_p, p_out, p_count); break;
+#define _BPC(VT, TArr, TElem)                               \
+	case Variant::VT:                                       \
+		_packed_raw_copy<TArr, TElem>(p_p, p_out, p_count); \
+		break;
 		BEEF_PACKED_DISPATCH(_BPC)
 #undef _BPC
-		default: break;
+		default:
+			break;
 	}
 }
 static void _beef_packed_destroy(void *p_p, int64_t p_type) {
 	switch ((Variant::Type)p_type) {
-#define _BPD(VT, TArr, TElem) \
-	case Variant::VT: reinterpret_cast<TArr *>(p_p)->~TArr(); break;
+#define _BPD(VT, TArr, TElem)                   \
+	case Variant::VT:                           \
+		reinterpret_cast<TArr *>(p_p)->~TArr(); \
+		break;
 		BEEF_PACKED_DISPATCH(_BPD)
 #undef _BPD
-		default: break;
+		default:
+			break;
 	}
 }
 
@@ -584,7 +745,7 @@ static void _beef_variant_as_psa(const void *p_v, void *p_out) {
 	memnew_placement(p_out, PackedStringArray(reinterpret_cast<const Variant *>(p_v)->operator PackedStringArray()));
 }
 
-// ─── Array marshalling ───────────────────────────────────────────────────────
+// ─── Array marshaling ───────────────────────────────────────────────────────
 // Array is one pointer (PtrToArgDirect); the Beef side reserves sizeof(Array) and these
 // placement-construct / read / mutate / destruct an engine Array in it. Elements cross as
 // Variants (the Beef side owns the out Variant and Disposes it).
@@ -606,7 +767,7 @@ static void _beef_array_push_back(void *p_arr, const void *p_var) {
 	reinterpret_cast<Array *>(p_arr)->push_back(*reinterpret_cast<const Variant *>(p_var));
 }
 
-// ─── Dictionary marshalling ──────────────────────────────────────────────────
+// ─── Dictionary marshaling ──────────────────────────────────────────────────
 // Same shape as Array (one pointer, PtrToArgDirect); keys/values cross as Variants.
 
 static void _beef_dictionary_new(void *p_dest) {
@@ -646,86 +807,86 @@ static void _beef_callable_destroy(void *p_callable) {
 }
 
 static const void *s_beef_godot_funcs[] = {
-	(void *)_beef_godot_print,         // 0: print(char8* msg)
-	(void *)_beef_get_method_bind,     // 1: get_method_bind(char8* class, char8* method) -> void*
+	(void *)_beef_godot_print, // 0: print(char8* msg)
+	(void *)_beef_get_method_bind, // 1: get_method_bind(char8* class, char8* method) -> void*
 	(void *)_beef_method_bind_ptrcall, // 2: method_bind_ptrcall(void* bind, void* obj, void** args, void* ret)
-	(void *)_beef_string_new_utf8,     // 3: string_new_utf8(void* dest, char8* utf8)
-	(void *)_beef_string_utf8_len,     // 4: string_utf8_len(void* str) -> int64
-	(void *)_beef_string_to_utf8,      // 5: string_to_utf8(void* str, char8* buf, int64 len)
-	(void *)_beef_string_destroy,      // 6: string_destroy(void* str)
+	(void *)_beef_string_new_utf8, // 3: string_new_utf8(void* dest, char8* utf8)
+	(void *)_beef_string_utf8_len, // 4: string_utf8_len(void* str) -> int64
+	(void *)_beef_string_to_utf8, // 5: string_to_utf8(void* str, char8* buf, int64 len)
+	(void *)_beef_string_destroy, // 6: string_destroy(void* str)
 	(void *)_beef_stringname_new_utf8, // 7: string_name_new_utf8(void* dest, char8* utf8)
 	(void *)_beef_stringname_utf8_len, // 8: string_name_utf8_len(void* sn) -> int64
-	(void *)_beef_stringname_to_utf8,  // 9: string_name_to_utf8(void* sn, char8* buf, int64 len)
-	(void *)_beef_stringname_destroy,  // 10: string_name_destroy(void* sn)
-	(void *)_beef_object_class_name,   // 11: object_class_name(void* obj, char8* buf, int64 len) -> int64
-	(void *)_beef_object_reference,    // 12: object_reference(void* obj)   — RefCounted incref
-	(void *)_beef_object_unreference,  // 13: object_unreference(void* obj) — RefCounted decref (+delete at 0)
-	(void *)_beef_object_track,        // 14: object_track(void* obj)       — register death-notify binding
-	(void *)_beef_next_eviction,       // 15: next_eviction() -> void*      — pop a freed ptr to evict
-	(void *)_beef_object_free,         // 16: object_free(void* obj)        — Object.free() (plain objects)
-	(void *)_beef_variant_get_type,    // 17: variant_get_type(void* v) -> int64
-	(void *)_beef_variant_destroy,     // 18: variant_destroy(void* v)
-	(void *)_beef_variant_from_bool,   // 19: variant_from_bool(void* dest, bool b)
-	(void *)_beef_variant_as_bool,     // 20: variant_as_bool(void* v) -> bool
-	(void *)_beef_variant_from_int,    // 21: variant_from_int(void* dest, int64 i)
-	(void *)_beef_variant_as_int,      // 22: variant_as_int(void* v) -> int64
-	(void *)_beef_variant_from_float,  // 23: variant_from_float(void* dest, double d)
-	(void *)_beef_variant_as_float,    // 24: variant_as_float(void* v) -> double
+	(void *)_beef_stringname_to_utf8, // 9: string_name_to_utf8(void* sn, char8* buf, int64 len)
+	(void *)_beef_stringname_destroy, // 10: string_name_destroy(void* sn)
+	(void *)_beef_object_class_name, // 11: object_class_name(void* obj, char8* buf, int64 len) -> int64
+	(void *)_beef_object_reference, // 12: object_reference(void* obj)   — RefCounted incref
+	(void *)_beef_object_unreference, // 13: object_unreference(void* obj) — RefCounted decref (+delete at 0)
+	(void *)_beef_object_track, // 14: object_track(void* obj)       — register death-notify binding
+	(void *)_beef_next_eviction, // 15: next_eviction() -> void*      — pop a freed ptr to evict
+	(void *)_beef_object_free, // 16: object_free(void* obj)        — Object.free() (plain objects)
+	(void *)_beef_variant_get_type, // 17: variant_get_type(void* v) -> int64
+	(void *)_beef_variant_destroy, // 18: variant_destroy(void* v)
+	(void *)_beef_variant_from_bool, // 19: variant_from_bool(void* dest, bool b)
+	(void *)_beef_variant_as_bool, // 20: variant_as_bool(void* v) -> bool
+	(void *)_beef_variant_from_int, // 21: variant_from_int(void* dest, int64 i)
+	(void *)_beef_variant_as_int, // 22: variant_as_int(void* v) -> int64
+	(void *)_beef_variant_from_float, // 23: variant_from_float(void* dest, double d)
+	(void *)_beef_variant_as_float, // 24: variant_as_float(void* v) -> double
 	(void *)_beef_variant_from_string, // 25: variant_from_string(void* dest, char8* utf8)
 	(void *)_beef_variant_string_utf8_len, // 26: variant_string_utf8_len(void* v) -> int64
 	(void *)_beef_variant_string_to_utf8, // 27: variant_string_to_utf8(void* v, char8* buf, int64 len)
 	(void *)_beef_variant_from_object, // 28: variant_from_object(void* dest, void* obj)
-	(void *)_beef_variant_as_object,   // 29: variant_as_object(void* v) -> void*
-	(void *)_beef_array_new,           // 30: array_new(void* dest)
-	(void *)_beef_array_destroy,       // 31: array_destroy(void* arr)
-	(void *)_beef_array_size,          // 32: array_size(void* arr) -> int64
-	(void *)_beef_array_get,           // 33: array_get(void* arr, int64 idx, void* out)
-	(void *)_beef_array_push_back,     // 34: array_push_back(void* arr, void* var)
-	(void *)_beef_dictionary_new,      // 35: dictionary_new(void* dest)
-	(void *)_beef_dictionary_destroy,  // 36: dictionary_destroy(void* dict)
-	(void *)_beef_dictionary_size,     // 37: dictionary_size(void* dict) -> int64
-	(void *)_beef_dictionary_get,      // 38: dictionary_get(void* dict, void* key, void* out)
-	(void *)_beef_dictionary_set,      // 39: dictionary_set(void* dict, void* key, void* val)
-	(void *)_beef_dictionary_has,      // 40: dictionary_has(void* dict, void* key) -> bool
-	(void *)_beef_variant_from_typed,  // 41: variant_from_typed(void* dest, int64 type, void* src)
-	(void *)_beef_variant_as_typed,    // 42: variant_as_typed(void* v, int64 type, void* out)
-	(void *)_beef_variant_from_array,  // 43: variant_from_array(void* dest, void* arr)
-	(void *)_beef_variant_as_array,    // 44: variant_as_array(void* v, void* out)
+	(void *)_beef_variant_as_object, // 29: variant_as_object(void* v) -> void*
+	(void *)_beef_array_new, // 30: array_new(void* dest)
+	(void *)_beef_array_destroy, // 31: array_destroy(void* arr)
+	(void *)_beef_array_size, // 32: array_size(void* arr) -> int64
+	(void *)_beef_array_get, // 33: array_get(void* arr, int64 idx, void* out)
+	(void *)_beef_array_push_back, // 34: array_push_back(void* arr, void* var)
+	(void *)_beef_dictionary_new, // 35: dictionary_new(void* dest)
+	(void *)_beef_dictionary_destroy, // 36: dictionary_destroy(void* dict)
+	(void *)_beef_dictionary_size, // 37: dictionary_size(void* dict) -> int64
+	(void *)_beef_dictionary_get, // 38: dictionary_get(void* dict, void* key, void* out)
+	(void *)_beef_dictionary_set, // 39: dictionary_set(void* dict, void* key, void* val)
+	(void *)_beef_dictionary_has, // 40: dictionary_has(void* dict, void* key) -> bool
+	(void *)_beef_variant_from_typed, // 41: variant_from_typed(void* dest, int64 type, void* src)
+	(void *)_beef_variant_as_typed, // 42: variant_as_typed(void* v, int64 type, void* out)
+	(void *)_beef_variant_from_array, // 43: variant_from_array(void* dest, void* arr)
+	(void *)_beef_variant_as_array, // 44: variant_as_array(void* v, void* out)
 	(void *)_beef_variant_from_dictionary, // 45: variant_from_dictionary(void* dest, void* dict)
-	(void *)_beef_variant_as_dictionary,   // 46: variant_as_dictionary(void* v, void* out)
+	(void *)_beef_variant_as_dictionary, // 46: variant_as_dictionary(void* v, void* out)
 	(void *)_beef_variant_from_stringname, // 47: variant_from_stringname(void* dest, char8* utf8)
-	(void *)_beef_variant_from_nodepath,   // 48: variant_from_nodepath(void* dest, char8* utf8)
-	(void *)_beef_variant_from_packed,     // 49: variant_from_packed(void* dest, int64 type, void* data, int64 count)
-	(void *)_beef_variant_packed_size,     // 50: variant_packed_size(void* v, int64 type) -> int64
-	(void *)_beef_variant_packed_copy,     // 51: variant_packed_copy(void* v, int64 type, void* out, int64 count)
-	(void *)_beef_emit_signal,             // 52: emit_signal(void* obj, char8* name, void** args, int32 argc)
-	(void *)_beef_callable_new,            // 53: callable_new(void* dest, void* obj, char8* method)
-	(void *)_beef_callable_destroy,        // 54: callable_destroy(void* callable)
-	(void *)_beef_instantiate,             // 55: instantiate(char8* class) -> void* (new Object, caller owns)
-	(void *)_beef_object_call,             // 56: object_call(void* obj, char8* method, void** args, int32 argc, void* ret) — Variant dispatch
-	(void *)_beef_nodepath_new_utf8,       // 57: nodepath_new_utf8(void* dest, char8* utf8)
-	(void *)_beef_nodepath_utf8_len,       // 58: nodepath_utf8_len(void* np) -> int64
-	(void *)_beef_nodepath_to_utf8,        // 59: nodepath_to_utf8(void* np, char8* buf, int64 len)
-	(void *)_beef_nodepath_destroy,        // 60: nodepath_destroy(void* np)
-	(void *)_beef_packed_new,              // 61: packed_new(void* dest, int64 type, void* data, int64 count) — raw Packed*Array
-	(void *)_beef_packed_size,             // 62: packed_size(void* p, int64 type) -> int64
-	(void *)_beef_packed_copy,             // 63: packed_copy(void* p, int64 type, void* out, int64 count)
-	(void *)_beef_packed_destroy,          // 64: packed_destroy(void* p, int64 type)
-	(void *)_beef_psa_new,                 // 65: psa_new(void* dest) — empty PackedStringArray
-	(void *)_beef_psa_append,              // 66: psa_append(void* p, char8* utf8)
-	(void *)_beef_psa_size,                // 67: psa_size(void* p) -> int64
-	(void *)_beef_psa_elem_len,            // 68: psa_elem_len(void* p, int64 idx) -> int64
-	(void *)_beef_psa_elem_utf8,           // 69: psa_elem_utf8(void* p, int64 idx, char8* buf, int64 len)
-	(void *)_beef_psa_destroy,             // 70: psa_destroy(void* p)
-	(void *)_beef_get_singleton,           // 71: get_singleton(char8* name) -> void* (Object, not owned)
-	(void *)_beef_call_utility,            // 72: call_utility_function(char8* name, Variant** args, int32 argc, Variant* ret)
-	(void *)_beef_variant_as_callable,     // 73: variant_as_callable(Variant* v, Callable* out)
-	(void *)_beef_variant_from_callable,   // 74: variant_from_callable(Variant* dest, Callable* c)
-	(void *)_beef_variant_as_signal,       // 75: variant_as_signal(Variant* v, Signal* out)
-	(void *)_beef_variant_from_signal,     // 76: variant_from_signal(Variant* dest, Signal* s)
-	(void *)_beef_signal_destroy,          // 77: signal_destroy(Signal* s)
-	(void *)_beef_variant_from_psa,        // 78: variant_from_psa(void* dest, void* psa)
-	(void *)_beef_variant_as_psa,          // 79: variant_as_psa(void* v, void* out)
+	(void *)_beef_variant_from_nodepath, // 48: variant_from_nodepath(void* dest, char8* utf8)
+	(void *)_beef_variant_from_packed, // 49: variant_from_packed(void* dest, int64 type, void* data, int64 count)
+	(void *)_beef_variant_packed_size, // 50: variant_packed_size(void* v, int64 type) -> int64
+	(void *)_beef_variant_packed_copy, // 51: variant_packed_copy(void* v, int64 type, void* out, int64 count)
+	(void *)_beef_emit_signal, // 52: emit_signal(void* obj, char8* name, void** args, int32 argc)
+	(void *)_beef_callable_new, // 53: callable_new(void* dest, void* obj, char8* method)
+	(void *)_beef_callable_destroy, // 54: callable_destroy(void* callable)
+	(void *)_beef_instantiate, // 55: instantiate(char8* class) -> void* (new Object, caller owns)
+	(void *)_beef_object_call, // 56: object_call(void* obj, char8* method, void** args, int32 argc, void* ret) — Variant dispatch
+	(void *)_beef_nodepath_new_utf8, // 57: nodepath_new_utf8(void* dest, char8* utf8)
+	(void *)_beef_nodepath_utf8_len, // 58: nodepath_utf8_len(void* np) -> int64
+	(void *)_beef_nodepath_to_utf8, // 59: nodepath_to_utf8(void* np, char8* buf, int64 len)
+	(void *)_beef_nodepath_destroy, // 60: nodepath_destroy(void* np)
+	(void *)_beef_packed_new, // 61: packed_new(void* dest, int64 type, void* data, int64 count) — raw Packed*Array
+	(void *)_beef_packed_size, // 62: packed_size(void* p, int64 type) -> int64
+	(void *)_beef_packed_copy, // 63: packed_copy(void* p, int64 type, void* out, int64 count)
+	(void *)_beef_packed_destroy, // 64: packed_destroy(void* p, int64 type)
+	(void *)_beef_psa_new, // 65: psa_new(void* dest) — empty PackedStringArray
+	(void *)_beef_psa_append, // 66: psa_append(void* p, char8* utf8)
+	(void *)_beef_psa_size, // 67: psa_size(void* p) -> int64
+	(void *)_beef_psa_elem_len, // 68: psa_elem_len(void* p, int64 idx) -> int64
+	(void *)_beef_psa_elem_utf8, // 69: psa_elem_utf8(void* p, int64 idx, char8* buf, int64 len)
+	(void *)_beef_psa_destroy, // 70: psa_destroy(void* p)
+	(void *)_beef_get_singleton, // 71: get_singleton(char8* name) -> void* (Object, not owned)
+	(void *)_beef_call_utility, // 72: call_utility_function(char8* name, Variant** args, int32 argc, Variant* ret)
+	(void *)_beef_variant_as_callable, // 73: variant_as_callable(Variant* v, Callable* out)
+	(void *)_beef_variant_from_callable, // 74: variant_from_callable(Variant* dest, Callable* c)
+	(void *)_beef_variant_as_signal, // 75: variant_as_signal(Variant* v, Signal* out)
+	(void *)_beef_variant_from_signal, // 76: variant_from_signal(Variant* dest, Signal* s)
+	(void *)_beef_signal_destroy, // 77: signal_destroy(Signal* s)
+	(void *)_beef_variant_from_psa, // 78: variant_from_psa(void* dest, void* psa)
+	(void *)_beef_variant_as_psa, // 79: variant_as_psa(void* v, void* out)
 };
 static const int32_t s_beef_godot_funcs_count = sizeof(s_beef_godot_funcs) / sizeof(s_beef_godot_funcs[0]);
 
@@ -1112,20 +1273,58 @@ void BeefLanguage::_pre_unload_destroy_instances() {
 
 Vector<String> BeefLanguage::get_reserved_words() const {
 	return {
-		"namespace", "using", "class", "struct", "interface", "enum",
-		"public", "private", "protected", "internal", "static", "readonly",
-		"abstract", "virtual", "override", "sealed", "extern",
-		"var", "let", "if", "else", "for", "while", "do", "switch",
-		"case", "default", "break", "continue", "return", "new", "delete",
-		"null", "true", "false", "this", "base", "typeof", "sizeof",
-		"in", "out", "ref", "params", "delegate", "function",
+		"namespace",
+		"using",
+		"class",
+		"struct",
+		"interface",
+		"enum",
+		"public",
+		"private",
+		"protected",
+		"internal",
+		"static",
+		"readonly",
+		"abstract",
+		"virtual",
+		"override",
+		"sealed",
+		"extern",
+		"var",
+		"let",
+		"if",
+		"else",
+		"for",
+		"while",
+		"do",
+		"switch",
+		"case",
+		"default",
+		"break",
+		"continue",
+		"return",
+		"new",
+		"delete",
+		"null",
+		"true",
+		"false",
+		"this",
+		"base",
+		"typeof",
+		"sizeof",
+		"in",
+		"out",
+		"ref",
+		"params",
+		"delegate",
+		"function",
 	};
 }
 
 bool BeefLanguage::is_control_flow_keyword(const String &p_string) const {
 	return p_string == "if" || p_string == "else" || p_string == "for" ||
-		   p_string == "while" || p_string == "do" || p_string == "switch" ||
-		   p_string == "break" || p_string == "continue" || p_string == "return";
+			p_string == "while" || p_string == "do" || p_string == "switch" ||
+			p_string == "break" || p_string == "continue" || p_string == "return";
 }
 
 Vector<String> BeefLanguage::get_comment_delimiters() const {
@@ -2080,8 +2279,8 @@ Error BeefScript::reload(bool p_keep_state) {
 	// no error. Surface that mismatch loudly instead.
 	if (has_script_class && reg_name != cn) {
 		ERR_PRINT(vformat("BeefScript: class '%s' in '%s' does not match the file name. A Beef "
-						   "script's class name must equal its file name. Rename the class to '%s' "
-						   "or rename the file to '%s.bf'.",
+						  "script's class name must equal its file name. Rename the class to '%s' "
+						  "or rename the file to '%s.bf'.",
 				reg_name, script_path.get_file(), cn, reg_name));
 	}
 	bool is_script_class = has_script_class && reg_name == cn;

@@ -1,5 +1,34 @@
-#ifndef BEEF_BINDINGS_GENERATOR_H
-#define BEEF_BINDINGS_GENERATOR_H
+/**************************************************************************/
+/*  bindings_generator.h                                                  */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+#pragma once
 
 #ifdef TOOLS_ENABLED
 
@@ -94,7 +123,7 @@ class BeefBindingsGenerator {
 		MK_SIMPLE, // fixed-size value type passed by pointer to a copy
 		MK_STRING, // engine String constructed/read via Native.Str*
 		MK_STRINGNAME, // engine StringName constructed/read via Native.SN*
-		MK_NODEPATH, // engine NodePath constructed/read via Native.NP* (marshalled as text)
+		MK_NODEPATH, // engine NodePath constructed/read via Native.NP* (marshaled as text)
 		MK_OBJECT, // Object* passed as &wrapper._godotOwner
 		MK_ARRAY, // engine Array constructed/read via Native.Arr*
 		MK_DICTIONARY, // engine Dictionary constructed/read via Native.Dict*
@@ -151,7 +180,7 @@ public:
 
 	// Copies the hand-written math value-type extensions (modules/beef/glue/*.bf) into p_bindings_src so
 	// the Godot built-in structs (Vector2, etc.) gain their methods/operators/constructors. These ride
-	// on the [CRepr] layout stubs in GodotPrimitives.bf, so the engine marshalling layout is unchanged.
+	// on the [CRepr] layout stubs in GodotPrimitives.bf, so the engine marshaling layout is unchanged.
 	Error copy_math_glue(const String &p_bindings_src);
 
 	// Handles --generate-beef-glue command-line option.
@@ -159,5 +188,3 @@ public:
 };
 
 #endif // TOOLS_ENABLED
-
-#endif // BEEF_BINDINGS_GENERATOR_H

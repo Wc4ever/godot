@@ -1,3 +1,33 @@
+/**************************************************************************/
+/*  bindings_generator.cpp                                                */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 #include "bindings_generator.h"
 
 #ifdef TOOLS_ENABLED
@@ -6,9 +36,9 @@
 #include "../ide/beef_ide_helper.h"
 
 #include "core/config/engine.h"
+#include "core/config/project_settings.h"
 #include "core/core_constants.h"
 #include "core/io/dir_access.h"
-#include "core/config/project_settings.h"
 #include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "core/templates/local_vector.h"
@@ -79,10 +109,10 @@ void BeefBindingsGenerator::_init_type_map() {
 	type_map["int"] = "int64";
 	type_map["float"] = "double";
 	type_map["String"] = "System.String";
-	// StringName is marshalled to/from a Beef string (like String); NodePath stays opaque until
-	// it gets its own marshalling.
+	// StringName is marshaled to/from a Beef string (like String); NodePath stays opaque until
+	// it gets its own marshaling.
 	type_map["StringName"] = "System.String";
-	type_map["NodePath"] = "System.String"; // marshalled as text, like StringName
+	type_map["NodePath"] = "System.String"; // marshaled as text, like StringName
 	type_map["Variant"] = "Variant";
 
 	// Math types
@@ -295,8 +325,8 @@ String BeefBindingsGenerator::_resolve_type(MethodBind *p_mb, const MethodInfo &
 		return "GodotDictionary";
 	}
 	return _get_beef_type(pi.class_name != StringName()
-			? String(pi.class_name)
-			: Variant::get_type_name(pi.type));
+					? String(pi.class_name)
+					: Variant::get_type_name(pi.type));
 }
 
 String BeefBindingsGenerator::_arg_name(const PropertyInfo &p_arg, int p_idx) {
@@ -984,7 +1014,7 @@ Error BeefBindingsGenerator::_generate_bf_class(const StringName &p_class_name, 
 		bool is_ref = (p_class_name == rc) || ClassDB::is_parent_class(p_class_name, rc);
 		bool instantiable = ClassDB::can_instantiate(p_class_name);
 		String cn = String(p_class_name);
-		// Every Godot subclass re-declares static New() / instance Clone() with a more-derived
+		// Every Godot subclass redeclares static New() / instance Clone() with a more-derived
 		// `Self` return type, which *hides* the inherited version. Mark these with `new` so Beef
 		// doesn't emit BF0114 for each of the ~1027 classes (1000+ warnings hits BeefBuild's cap
 		// and aborts the whole build). The root (no Godot base) and the first Clone() declarer
@@ -1056,14 +1086,22 @@ Error BeefBindingsGenerator::_generate_primitives_file(const String &p_output_di
 		int tag;
 	};
 	const TypedConv typed_convs[] = {
-		{ "Vector2", Variant::VECTOR2 }, { "Vector2I", Variant::VECTOR2I },
-		{ "Rect2", Variant::RECT2 }, { "Rect2I", Variant::RECT2I },
-		{ "Vector3", Variant::VECTOR3 }, { "Vector3I", Variant::VECTOR3I },
-		{ "Transform2D", Variant::TRANSFORM2D }, { "Vector4", Variant::VECTOR4 },
-		{ "Vector4I", Variant::VECTOR4I }, { "Plane", Variant::PLANE },
-		{ "Quaternion", Variant::QUATERNION }, { "Aabb", Variant::AABB },
-		{ "Basis", Variant::BASIS }, { "Transform3D", Variant::TRANSFORM3D },
-		{ "Projection", Variant::PROJECTION }, { "Color", Variant::COLOR },
+		{ "Vector2", Variant::VECTOR2 },
+		{ "Vector2I", Variant::VECTOR2I },
+		{ "Rect2", Variant::RECT2 },
+		{ "Rect2I", Variant::RECT2I },
+		{ "Vector3", Variant::VECTOR3 },
+		{ "Vector3I", Variant::VECTOR3I },
+		{ "Transform2D", Variant::TRANSFORM2D },
+		{ "Vector4", Variant::VECTOR4 },
+		{ "Vector4I", Variant::VECTOR4I },
+		{ "Plane", Variant::PLANE },
+		{ "Quaternion", Variant::QUATERNION },
+		{ "Aabb", Variant::AABB },
+		{ "Basis", Variant::BASIS },
+		{ "Transform3D", Variant::TRANSFORM3D },
+		{ "Projection", Variant::PROJECTION },
+		{ "Color", Variant::COLOR },
 		{ "Rid", Variant::RID },
 	};
 	String variant_typed;
@@ -1116,41 +1154,42 @@ Error BeefBindingsGenerator::_generate_primitives_file(const String &p_output_di
 			"[CRepr] public struct NodePath { void* _ptr; }\n"
 			"[CRepr] public struct Variant\n"
 			"{\n"
-			"\tuint8[" + variant_sz + "] _opaque;\n"
-			"\t// Conversions to/from concrete values. A Variant holding a string/array/object owns\n"
-			"\t// engine resources; call Dispose() on Variants you keep (returned ones, or From* ones).\n"
-			"\tpublic Godot.Variant.Type GetVariantType() { var s = this; return (Godot.Variant.Type)Native.sVarType(&s); }\n"
-			"\tpublic void Dispose() mut { Native.sVarDestroy(&this); }\n"
-			"\tpublic static Godot.Variant FromBool(bool v) { Godot.Variant r = default; Native.sVarFromBool(&r, v); return r; }\n"
-			"\tpublic static Godot.Variant FromInt(int64 v) { Godot.Variant r = default; Native.sVarFromInt(&r, v); return r; }\n"
-			"\tpublic static Godot.Variant FromFloat(double v) { Godot.Variant r = default; Native.sVarFromFloat(&r, v); return r; }\n"
-			"\tpublic static Godot.Variant FromString(System.String v) { Godot.Variant r = default; Native.sVarFromString(&r, v.CStr()); return r; }\n"
-			"\tpublic static Godot.Variant FromObject(Godot.Object o) { Godot.Variant r = default; Native.sVarFromObject(&r, (o != null) ? o._godotOwner : null); return r; }\n"
-			"\t// Implicit conversions so scalars can be passed where a Variant is expected (e.g. the GD\n"
-			"\t// utility functions and variadic Call/Rpc). A converted temp holds a Variant resource only\n"
-			"\t// for String; variadic callees consume (Dispose) their args, so these don't leak.\n"
-			"\tpublic static implicit operator Godot.Variant(bool v) { return FromBool(v); }\n"
-			"\tpublic static implicit operator Godot.Variant(int v) { return FromInt(v); }\n"
-			"\tpublic static implicit operator Godot.Variant(int64 v) { return FromInt(v); }\n"
-			"\tpublic static implicit operator Godot.Variant(float v) { return FromFloat(v); }\n"
-			"\tpublic static implicit operator Godot.Variant(double v) { return FromFloat(v); }\n"
-			"\tpublic static implicit operator Godot.Variant(System.String v) { return FromString(v); }\n"
-			"\tpublic bool AsBool() { var s = this; return Native.sVarAsBool(&s); }\n"
-			"\tpublic int64 AsInt() { var s = this; return Native.sVarAsInt(&s); }\n"
-			"\tpublic double AsFloat() { var s = this; return Native.sVarAsFloat(&s); }\n"
-			"\tpublic System.String AsString()\n"
-			"\t{\n"
-			"\t\tvar s = this;\n"
-			"\t\tlet result = new System.String();\n"
-			"\t\tint len = (int)Native.sVarStrLen(&s);\n"
-			"\t\tif (len > 0)\n"
-			"\t\t{\n"
-			"\t\t\tchar8* buf = result.PrepareBuffer(len);\n"
-			"\t\t\tNative.sVarStrToUtf8(&s, buf, len);\n"
-			"\t\t}\n"
-			"\t\treturn result;\n"
-			"\t}\n"
-			"\tpublic Godot.Object AsObject() { var s = this; return Native.WrapObject(Native.sVarAsObject(&s), \"Object\"); }\n" +
+			"\tuint8[" +
+			variant_sz + "] _opaque;\n"
+						 "\t// Conversions to/from concrete values. A Variant holding a string/array/object owns\n"
+						 "\t// engine resources; call Dispose() on Variants you keep (returned ones, or From* ones).\n"
+						 "\tpublic Godot.Variant.Type GetVariantType() { var s = this; return (Godot.Variant.Type)Native.sVarType(&s); }\n"
+						 "\tpublic void Dispose() mut { Native.sVarDestroy(&this); }\n"
+						 "\tpublic static Godot.Variant FromBool(bool v) { Godot.Variant r = default; Native.sVarFromBool(&r, v); return r; }\n"
+						 "\tpublic static Godot.Variant FromInt(int64 v) { Godot.Variant r = default; Native.sVarFromInt(&r, v); return r; }\n"
+						 "\tpublic static Godot.Variant FromFloat(double v) { Godot.Variant r = default; Native.sVarFromFloat(&r, v); return r; }\n"
+						 "\tpublic static Godot.Variant FromString(System.String v) { Godot.Variant r = default; Native.sVarFromString(&r, v.CStr()); return r; }\n"
+						 "\tpublic static Godot.Variant FromObject(Godot.Object o) { Godot.Variant r = default; Native.sVarFromObject(&r, (o != null) ? o._godotOwner : null); return r; }\n"
+						 "\t// Implicit conversions so scalars can be passed where a Variant is expected (e.g. the GD\n"
+						 "\t// utility functions and variadic Call/Rpc). A converted temp holds a Variant resource only\n"
+						 "\t// for String; variadic callees consume (Dispose) their args, so these don't leak.\n"
+						 "\tpublic static implicit operator Godot.Variant(bool v) { return FromBool(v); }\n"
+						 "\tpublic static implicit operator Godot.Variant(int v) { return FromInt(v); }\n"
+						 "\tpublic static implicit operator Godot.Variant(int64 v) { return FromInt(v); }\n"
+						 "\tpublic static implicit operator Godot.Variant(float v) { return FromFloat(v); }\n"
+						 "\tpublic static implicit operator Godot.Variant(double v) { return FromFloat(v); }\n"
+						 "\tpublic static implicit operator Godot.Variant(System.String v) { return FromString(v); }\n"
+						 "\tpublic bool AsBool() { var s = this; return Native.sVarAsBool(&s); }\n"
+						 "\tpublic int64 AsInt() { var s = this; return Native.sVarAsInt(&s); }\n"
+						 "\tpublic double AsFloat() { var s = this; return Native.sVarAsFloat(&s); }\n"
+						 "\tpublic System.String AsString()\n"
+						 "\t{\n"
+						 "\t\tvar s = this;\n"
+						 "\t\tlet result = new System.String();\n"
+						 "\t\tint len = (int)Native.sVarStrLen(&s);\n"
+						 "\t\tif (len > 0)\n"
+						 "\t\t{\n"
+						 "\t\t\tchar8* buf = result.PrepareBuffer(len);\n"
+						 "\t\t\tNative.sVarStrToUtf8(&s, buf, len);\n"
+						 "\t\t}\n"
+						 "\t\treturn result;\n"
+						 "\t}\n"
+						 "\tpublic Godot.Object AsObject() { var s = this; return Native.WrapObject(Native.sVarAsObject(&s), \"Object\"); }\n" +
 			variant_typed +
 			// Array/Dictionary box/unbox. As* placement-constructs a fresh engine container into the
 			// returned handle; the caller owns it and Disposes when done.
@@ -1206,47 +1245,54 @@ Error BeefBindingsGenerator::_generate_primitives_file(const String &p_output_di
 			"}\n"
 			"[CRepr] public struct Callable\n"
 			"{\n"
-			"\tuint8[" + callable_sz + "] _opaque;\n"
-			"\tpublic void Dispose() mut { if (Native.sCallableDestroy != null) Native.sCallableDestroy(&this); }\n"
-			"}\n"
-			"[CRepr] public struct Signal\n"
-			"{\n"
-			"\tuint8[" + signal_sz + "] _opaque;\n"
-			"\tpublic void Dispose() mut { if (Native.sSignalDestroy != null) Native.sSignalDestroy(&this); }\n"
-			"}\n"
-			"[CRepr] public struct Rid { uint64 _id; }\n"
-			// One-pointer storage for an engine String/StringName/NodePath during marshalling.
-			"[CRepr] public struct GodotStr { void* _p; }\n"
-			"[CRepr] public struct GodotSN { void* _p; }\n"
-			"[CRepr] public struct GodotNP { void* _p; }\n"
-			// One-pointer storage for an engine Packed*Array (CowData) during marshalling.
-			"[CRepr] public struct GodotPacked { void* _p; }\n"
-			"\n"
-			"// --- Math types ---\n"
-			"[CRepr] public struct Vector2 { public " + r + " X, Y;\n"
-			"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1 }\n"
-			"}\n"
-			"[CRepr] public struct Vector2I { public int32 X, Y; }\n"
-			"[CRepr] public struct Vector3 { public " + r + " X, Y, Z;\n"
-			"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1, AXIS_Z = 2 }\n"
-			"}\n"
-			"[CRepr] public struct Vector3I { public int32 X, Y, Z; }\n"
-			"[CRepr] public struct Vector4 { public " + r + " X, Y, Z, W;\n"
-			"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1, AXIS_Z = 2, AXIS_W = 3 }\n"
-			"}\n"
-			"[CRepr] public struct Vector4I { public int32 X, Y, Z, W; }\n"
-			"[CRepr] public struct Rect2 { public Vector2 Position, Size; }\n"
-			"[CRepr] public struct Rect2I { public Vector2I Position, Size; }\n"
-			"[CRepr] public struct Color { public float R, G, B, A; }\n"
-			"[CRepr] public struct Plane { public Vector3 Normal; public " + r + " D; }\n"
-			"[CRepr] public struct Aabb { public Vector3 Position, Size; }\n"
-			// Godot stores a Basis row-major (Vector3 rows[3]); X/Y/Z columns are exposed via the
-			// hand-written extension. Field names match C#'s Row0/Row1/Row2.
-			"[CRepr] public struct Basis { public Vector3 Row0, Row1, Row2; }\n"
-			"[CRepr] public struct Quaternion { public " + r + " X, Y, Z, W; }\n"
-			"[CRepr] public struct Transform2D { public Vector2 X, Y, Origin; }\n"
-			"[CRepr] public struct Transform3D { public Basis Basis; public Vector3 Origin; }\n"
-			"[CRepr] public struct Projection { public Vector4 X, Y, Z, W; }\n");
+			"\tuint8[" +
+			callable_sz + "] _opaque;\n"
+						  "\tpublic void Dispose() mut { if (Native.sCallableDestroy != null) Native.sCallableDestroy(&this); }\n"
+						  "}\n"
+						  "[CRepr] public struct Signal\n"
+						  "{\n"
+						  "\tuint8[" +
+			signal_sz + "] _opaque;\n"
+						"\tpublic void Dispose() mut { if (Native.sSignalDestroy != null) Native.sSignalDestroy(&this); }\n"
+						"}\n"
+						"[CRepr] public struct Rid { uint64 _id; }\n"
+						// One-pointer storage for an engine String/StringName/NodePath during marshaling.
+						"[CRepr] public struct GodotStr { void* _p; }\n"
+						"[CRepr] public struct GodotSN { void* _p; }\n"
+						"[CRepr] public struct GodotNP { void* _p; }\n"
+						// One-pointer storage for an engine Packed*Array (CowData) during marshaling.
+						"[CRepr] public struct GodotPacked { void* _p; }\n"
+						"\n"
+						"// --- Math types ---\n"
+						"[CRepr] public struct Vector2 { public " +
+			r + " X, Y;\n"
+				"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1 }\n"
+				"}\n"
+				"[CRepr] public struct Vector2I { public int32 X, Y; }\n"
+				"[CRepr] public struct Vector3 { public " +
+			r + " X, Y, Z;\n"
+				"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1, AXIS_Z = 2 }\n"
+				"}\n"
+				"[CRepr] public struct Vector3I { public int32 X, Y, Z; }\n"
+				"[CRepr] public struct Vector4 { public " +
+			r + " X, Y, Z, W;\n"
+				"\tpublic enum Axis : int32 { AXIS_X = 0, AXIS_Y = 1, AXIS_Z = 2, AXIS_W = 3 }\n"
+				"}\n"
+				"[CRepr] public struct Vector4I { public int32 X, Y, Z, W; }\n"
+				"[CRepr] public struct Rect2 { public Vector2 Position, Size; }\n"
+				"[CRepr] public struct Rect2I { public Vector2I Position, Size; }\n"
+				"[CRepr] public struct Color { public float R, G, B, A; }\n"
+				"[CRepr] public struct Plane { public Vector3 Normal; public " +
+			r + " D; }\n"
+				"[CRepr] public struct Aabb { public Vector3 Position, Size; }\n"
+				// Godot stores a Basis row-major (Vector3 rows[3]); X/Y/Z columns are exposed via the
+				// hand-written extension. Field names match C#'s Row0/Row1/Row2.
+				"[CRepr] public struct Basis { public Vector3 Row0, Row1, Row2; }\n"
+				"[CRepr] public struct Quaternion { public " +
+			r + " X, Y, Z, W; }\n"
+				"[CRepr] public struct Transform2D { public Vector2 X, Y, Origin; }\n"
+				"[CRepr] public struct Transform3D { public Basis Basis; public Vector3 Origin; }\n"
+				"[CRepr] public struct Projection { public Vector4 X, Y, Z, W; }\n");
 
 	return OK;
 }
@@ -1503,9 +1549,9 @@ struct GodotRpcAttribute : Attribute
 }
 
 )BF"
-			// Split here: a single string literal would exceed the MSVC limit (C2026). Adjacent
-			// literals are concatenated by the compiler into one argument.
-			R"BF([AttributeUsage(.Class, .ReflectAttribute)]
+					// Split here: a single string literal would exceed the MSVC limit (C2026). Adjacent
+					// literals are concatenated by the compiler into one argument.
+					R"BF([AttributeUsage(.Class, .ReflectAttribute)]
 struct GodotRegisterAttribute : Attribute, IComptimeTypeApply
 {
 	Type mTarget;
@@ -1788,8 +1834,8 @@ struct GodotRegisterAttribute : Attribute, IComptimeTypeApply
 		}
 
 )BF"
-			// Split here to keep each string literal under the MSVC C2026 size limit.
-			R"BF(		// Exported fields ([GodotExport] on a public field) -> get/set + a property-list entry.
+					// Split here to keep each string literal under the MSVC C2026 size limit.
+					R"BF(		// Exported fields ([GodotExport] on a public field) -> get/set + a property-list entry.
 		String setBody = scope .();
 		String getBody = scope .();
 		String propName = scope .();
@@ -1812,7 +1858,7 @@ struct GodotRegisterAttribute : Attribute, IComptimeTypeApply
 			let hintStr = (exp.mHintString != null) ? exp.mHintString : "";
 
 			// Read-from-Variant + box-to-Variant exprs + Variant::Type tag for the field type, from the
-			// shared marshalling helpers. Exported fields cover scalars/String/math/enum/Object
+			// shared marshaling helpers. Exported fields cover scalars/String/math/enum/Object
 			// (MarshalAs kinds 1 and 2); container/Variant field types (kinds 3/4) are not exported.
 			String asExpr = scope .();
 			String fromExpr = scope .();
@@ -2186,7 +2232,7 @@ Error BeefBindingsGenerator::_generate_godotnative_file(const String &p_output_d
 			"\t\tsMethodBindPtrcall(methodBind, obj, args, ret);\n"
 			"\t}\n"
 			"\n"
-			"\t// --- String marshalling (GodotStr is one-pointer engine-String storage) ---\n"
+			"\t// --- String marshaling (GodotStr is one-pointer engine-String storage) ---\n"
 			"\t/// Construct an engine String into dest from a Beef string (for a ptrcall arg).\n"
 			"\tpublic static void StrIn(System.String s, GodotStr* dest)\n"
 			"\t{\n"
@@ -2218,7 +2264,7 @@ Error BeefBindingsGenerator::_generate_godotnative_file(const String &p_output_d
 			"\t\tsStrDel(s);\n"
 			"\t}\n"
 			"\n"
-			"\t// --- StringName marshalling (same shape as String) ---\n"
+			"\t// --- StringName marshaling (same shape as String) ---\n"
 			"\tpublic static void SNIn(System.String s, GodotSN* dest)\n"
 			"\t{\n"
 			"\t\tsSNNew(dest, s.CStr());\n"
@@ -2246,7 +2292,7 @@ Error BeefBindingsGenerator::_generate_godotnative_file(const String &p_output_d
 			"\t\tsSNDel(s);\n"
 			"\t}\n"
 			"\n"
-			"\t// --- NodePath marshalling (same shape as String/StringName) ---\n"
+			"\t// --- NodePath marshaling (same shape as String/StringName) ---\n"
 			"\tpublic static void NPIn(System.String s, GodotNP* dest)\n"
 			"\t{\n"
 			"\t\tsNPNew(dest, s.CStr());\n"
@@ -2274,7 +2320,7 @@ Error BeefBindingsGenerator::_generate_godotnative_file(const String &p_output_d
 			"\t\tsNPDel(s);\n"
 			"\t}\n"
 			"\n"
-			"\t// --- Packed-array marshalling (POD element buffers, memcpy'd) ---\n"
+			"\t// --- Packed-array marshaling (POD element buffers, memcpy'd) ---\n"
 			"\t/// Construct an engine Packed*Array (of variantType) at dest from a Beef element array.\n"
 			"\tpublic static void PackedIn<T>(T[] arr, int64 variantType, GodotPacked* dest)\n"
 			"\t{\n"
@@ -2301,7 +2347,7 @@ Error BeefBindingsGenerator::_generate_godotnative_file(const String &p_output_d
 			"\t\tsPackedDestroy(p, variantType);\n"
 			"\t}\n"
 			"\n"
-			"\t// --- PackedStringArray marshalling (per-element strings) ---\n"
+			"\t// --- PackedStringArray marshaling (per-element strings) ---\n"
 			"\t/// Build an engine PackedStringArray at dest from a Beef System.String[].\n"
 			"\tpublic static void PSAIn(System.String[] arr, GodotPacked* dest)\n"
 			"\t{\n"
@@ -3094,7 +3140,7 @@ void BeefBindingsGenerator::handle_cmdline_args(const List<String> &p_cmdline_ar
 					Vector<String> msgs;
 					bool hot_ok = false, edited = false;
 					bool dll_seen = false;
-						int edit_iter = 0;
+					int edit_iter = 0;
 					for (int i = 0; i < 4000; i++) {
 						int st = ide->debug_poll(msgs);
 						for (const String &m : msgs) {
