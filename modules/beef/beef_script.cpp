@@ -1810,9 +1810,9 @@ bool BeefScript::parse_global_class(const String &p_source, String &r_name, Stri
 }
 
 StringName BeefScript::get_global_name() const {
-	String name, base;
-	if (parse_global_class(source_code, name, base)) {
-		return StringName(name);
+	String cls_name, base;
+	if (parse_global_class(source_code, cls_name, base)) {
+		return StringName(cls_name);
 	}
 	return StringName();
 }
@@ -1822,8 +1822,8 @@ bool BeefScript::inherits_script(const Ref<Script> &p_script) const {
 }
 
 StringName BeefScript::get_instance_base_type() const {
-	String name, base;
-	if (parse_global_class(source_code, name, base) && !base.is_empty()) {
+	String cls_name, base;
+	if (parse_global_class(source_code, cls_name, base) && !base.is_empty()) {
 		return StringName(base);
 	}
 	// Fall back to the base of the class named after the file.
@@ -2116,9 +2116,9 @@ MethodInfo BeefScript::get_method_info(const StringName &p_method) const {
 	if (fn_method_count && fn_method_name) {
 		int32_t n = fn_method_count();
 		for (int32_t i = 0; i < n; i++) {
-			const char *name = fn_method_name(i);
-			if (name && p_method == StringName(String::utf8(name))) {
-				MethodInfo mi(String::utf8(name));
+			const char *cname = fn_method_name(i);
+			if (cname && p_method == StringName(String::utf8(cname))) {
+				MethodInfo mi(String::utf8(cname));
 				int32_t argc = fn_method_argc ? fn_method_argc(i) : 0;
 				for (int32_t a = 0; a < argc; a++) {
 					Variant::Type at = fn_method_arg_type ? (Variant::Type)fn_method_arg_type(i, a) : Variant::NIL;
@@ -2184,8 +2184,8 @@ bool BeefScript::has_script_signal(const StringName &p_signal) const {
 	}
 	int32_t n = fn_signal_count();
 	for (int32_t i = 0; i < n; i++) {
-		const char *name = fn_signal_name(i);
-		if (name && p_signal == StringName(String::utf8(name))) {
+		const char *cname = fn_signal_name(i);
+		if (cname && p_signal == StringName(String::utf8(cname))) {
 			return true;
 		}
 	}
@@ -2198,11 +2198,11 @@ void BeefScript::get_script_signal_list(List<MethodInfo> *r_signals) const {
 	}
 	int32_t n = fn_signal_count();
 	for (int32_t i = 0; i < n; i++) {
-		const char *name = fn_signal_name(i);
-		if (!name) {
+		const char *cname = fn_signal_name(i);
+		if (!cname) {
 			continue;
 		}
-		MethodInfo mi(String::utf8(name));
+		MethodInfo mi(String::utf8(cname));
 		int32_t argc = fn_signal_argc(i);
 		for (int32_t a = 0; a < argc; a++) {
 			Variant::Type at = fn_signal_arg_type ? (Variant::Type)fn_signal_arg_type(i, a) : Variant::NIL;
@@ -2218,8 +2218,8 @@ bool BeefScript::get_property_default_value(const StringName &p_property, Varian
 	}
 	int32_t n = fn_prop_count();
 	for (int32_t i = 0; i < n; i++) {
-		const char *name = fn_prop_name(i);
-		if (name && p_property == StringName(String::utf8(name))) {
+		const char *cname = fn_prop_name(i);
+		if (cname && p_property == StringName(String::utf8(cname))) {
 			fn_prop_default(i, &r_value);
 			return true;
 		}
@@ -2233,11 +2233,11 @@ void BeefScript::get_script_method_list(List<MethodInfo> *p_list) const {
 	}
 	int32_t n = fn_method_count();
 	for (int32_t i = 0; i < n; i++) {
-		const char *name = fn_method_name(i);
-		if (!name) {
+		const char *cname = fn_method_name(i);
+		if (!cname) {
 			continue;
 		}
-		MethodInfo mi(String::utf8(name));
+		MethodInfo mi(String::utf8(cname));
 		int32_t argc = fn_method_argc ? fn_method_argc(i) : 0;
 		for (int32_t a = 0; a < argc; a++) {
 			Variant::Type at = fn_method_arg_type ? (Variant::Type)fn_method_arg_type(i, a) : Variant::NIL;
@@ -2253,10 +2253,10 @@ void BeefScript::get_script_property_list(List<PropertyInfo> *p_list) const {
 	}
 	int32_t n = fn_prop_count();
 	for (int32_t i = 0; i < n; i++) {
-		const char *name = fn_prop_name(i);
+		const char *cname = fn_prop_name(i);
 		Variant::Type type = (Variant::Type)fn_prop_type(i);
-		if (name) {
-			PropertyInfo pi(type, String::utf8(name));
+		if (cname) {
+			PropertyInfo pi(type, String::utf8(cname));
 			if (fn_prop_hint) {
 				pi.hint = (PropertyHint)fn_prop_hint(i);
 			}
@@ -2283,8 +2283,8 @@ const Variant BeefScript::get_rpc_config() const {
 	// SceneRPCInterface::_parse_rpc_config. String keys are accepted (read back via operator String()).
 	Dictionary config;
 	for (int32_t i = 0; i < count; i++) {
-		const char *name = fn_rpc_name ? fn_rpc_name(i) : nullptr;
-		if (!name || name[0] == '\0') {
+		const char *cname = fn_rpc_name ? fn_rpc_name(i) : nullptr;
+		if (!cname || cname[0] == '\0') {
 			continue;
 		}
 		Dictionary method_config;
@@ -2292,7 +2292,7 @@ const Variant BeefScript::get_rpc_config() const {
 		method_config["transfer_mode"] = fn_rpc_transfer ? fn_rpc_transfer(i) : 2; // TRANSFER_MODE_RELIABLE
 		method_config["call_local"] = fn_rpc_call_local ? fn_rpc_call_local(i) : false;
 		method_config["channel"] = fn_rpc_channel ? fn_rpc_channel(i) : 0;
-		config[String::utf8(name)] = method_config;
+		config[String::utf8(cname)] = method_config;
 	}
 	return config;
 }
