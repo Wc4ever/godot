@@ -175,7 +175,7 @@ jobs:
           call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           rem The "Release Static" config emits BeefySysLib_static.lib under its own intermediate dir; the
           rem bootstrap link expects IDE\dist\BeefySysLib64.lib. Stage it (mirrors make_beef_bundle.bat).
-          copy /Y "BeefySysLib\ide\dist\x64\Release\BeefySysLib_static.lib" "IDE\dist\BeefySysLib64.lib" || exit /b 1
+          copy /Y "ide\dist\x64\Release\BeefySysLib_static.lib" "IDE\dist\BeefySysLib64.lib" || exit /b 1
           IDE\dist\BeefBoot.exe --out="IDE\dist\BeefBuild_boot.exe" --src=IDE\src --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
 
       - name: Assemble bin/BeefBundle
