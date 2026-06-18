@@ -118,10 +118,13 @@ jobs:
         continue-on-error: true
 
       # ---- Beef toolchain (Editor cell only) ----
-      # Built in CI the canonical way, mirroring Beef's own bin/build.bat (Release-only subset): all
-      # projects build into IDE\dist with canonical names via /p:SolutionDir, BeefySysLib uses the
-      # "Release Static" config (NOT BeefySysLib_static.vcxproj), and bin\msbuild.bat (vswhere) picks the
-      # toolset. Then BeefBoot bootstraps BeefBuild_boot.exe. Assembled into bin/BeefBundle below.
+      # Mirrors the repo's proven local scripts (build_beef_libs.bat + build_beefrt.bat +
+      # make_beef_bundle.bat). Key detail: the static BeefySysLib that links cleanly against the RT is
+      # BeefySysLib_static.vcxproj (Release) -> ide\dist\x64\Release\BeefySysLib_static.lib. Do NOT use
+      # BeefySysLib.vcxproj "Release Static": that config compiles the Bfp* platform code in (LNK2005
+      # duplicate vs Beef042RT64.lib) and drops the font/input sources (LNK1120 unresolved FTFont/DInput).
+      # bin\msbuild.bat (vswhere -latest) picks a recent toolset whose STL matches the prebuilt LLVM that
+      # IDEHelper links. Then BeefBoot bootstraps BeefBuild_boot.exe. Assembled into bin/BeefBundle below.
       - name: Set up MSVC (Beef toolchain)
         if: matrix.bundle
         uses: ilammy/msvc-dev-cmd@v1
@@ -162,21 +165,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: thirdparty/beef/IDE/dist
-          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}
+          # -v2: invalidate caches saved by earlier broken toolchain build steps (a failed job still
+          # saves its cache on a miss, which would otherwise restore a poisoned IDE/dist and skip rebuild).
+          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}-v2
 
-      - name: Build Beef toolchain (canonical, mirrors bin/build.bat)
+      - name: Build Beef toolchain (mirrors local build scripts)
         if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
         shell: cmd
         working-directory: thirdparty/beef
         run: |
-          call bin\msbuild.bat BeefySysLib\BeefySysLib.vcxproj /p:Configuration="Release Static" /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          call bin\msbuild.bat BeefySysLib\BeefySysLib_static.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat IDEHelper\IDEHelper.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
-          rem The "Release Static" config emits BeefySysLib_static.lib under its own intermediate dir; the
+          rem BeefySysLib_static.vcxproj (Release) emits ide\dist\x64\Release\BeefySysLib_static.lib; the
           rem bootstrap link expects IDE\dist\BeefySysLib64.lib. Stage it (mirrors make_beef_bundle.bat).
           copy /Y "ide\dist\x64\Release\BeefySysLib_static.lib" "IDE\dist\BeefySysLib64.lib" || exit /b 1
-          IDE\dist\BeefBoot.exe --out="IDE\dist\BeefBuild_boot.exe" --src=IDE\src --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
+          IDE\dist\BeefBoot.exe -O0 --out="IDE\dist\BeefBuild_boot.exe" --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=IDE\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
 
       - name: Assemble bin/BeefBundle
         if: matrix.bundle
