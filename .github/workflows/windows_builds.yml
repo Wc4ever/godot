@@ -13,8 +13,7 @@ env:
     "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-0.18.0/"
   SCONS_CACHE_MSVC_CONFIG: true
   PYTHONIOENCODING: utf8
-  # Pins the prebuilt BeefBundle release asset (tag beef-toolchain-<BEEF_REF>) the Editor cell downloads.
-  # Bump this when you rebuild + republish the bundle for a new Beef version (built from Wc4ever/Beef).
+  # Beef toolchain source commit (Wc4ever/Beef, includes the LNK1170 fix). Built from source in CI.
   BEEF_REF: 8c4715340a
 
 jobs:
@@ -118,32 +117,84 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
 
-      # ---- Beef toolchain bundle (Editor cell only) ----
-      # The Beef toolchain (BeefBuild + IDEHelper + RT + llvm/lld-link + corlib) is built ONCE locally via
-      # make_beef_bundle.bat and published as a GitHub Release asset, because its bootstrap link is tied to
-      # the exact Beef lib configs and is fragile to reproduce on a clean runner. CI just downloads it.
-      #
-      # TO PUBLISH (once per Beef version, from a working local build):
-      #   Compress-Archive -Path bin/BeefBundle -DestinationPath BeefBundle.zip
-      #   gh release create beef-toolchain-<BEEF_REF> BeefBundle.zip --repo <this repo>
-      # Then bump BEEF_REF below (env) to match the tag. The IDEHelper64.dll in the bundle MUST be the
-      # same Beef commit (hot-reload requires it), which the tag pins.
-      - name: Download prebuilt BeefBundle
+      # ---- Beef toolchain (Editor cell only) ----
+      # Built in CI the canonical way, mirroring Beef's own bin/build.bat (Release-only subset): all
+      # projects build into IDE\dist with canonical names via /p:SolutionDir, BeefySysLib uses the
+      # "Release Static" config (NOT BeefySysLib_static.vcxproj), and bin\msbuild.bat (vswhere) picks the
+      # toolset. Then BeefBoot bootstraps BeefBuild_boot.exe. Assembled into bin/BeefBundle below.
+      - name: Set up MSVC (Beef toolchain)
         if: matrix.bundle
-        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          version: tags/beef-toolchain-${{ env.BEEF_REF }}
-          file: BeefBundle.zip
-          target: BeefBundle.zip
+          arch: x64
 
-      - name: Unpack BeefBundle into bin/
+      - name: Clone Beef toolchain source (pinned)
         if: matrix.bundle
         shell: pwsh
         run: |
-          Expand-Archive -Force BeefBundle.zip bin/
-          if (-not (Test-Path bin/BeefBundle/bin/BeefBuild.exe)) {
-            throw "BeefBundle.zip did not contain bin/BeefBundle/bin/BeefBuild.exe"
+          git clone --filter=blob:none https://github.com/Wc4ever/Beef.git thirdparty/beef
+          git -C thirdparty/beef checkout ${{ env.BEEF_REF }}
+
+      - name: Cache Beef LLVM deps
+        if: matrix.bundle
+        id: beef-deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            thirdparty/beef/extern
+            thirdparty/beef/BeefDep3_Done.txt
+          key: beefdep3-${{ env.BEEF_REF }}
+
+      - name: Download Beef LLVM deps
+        if: matrix.bundle && steps.beef-deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        working-directory: thirdparty/beef
+        run: |
+          if (-not (Test-Path BeefDep3_Done.txt)) {
+            curl.exe -L -O https://www.beeflang.org/BeefDep3.zip
+            tar.exe -xf BeefDep3.zip
+            Remove-Item BeefDep3.zip
           }
+
+      - name: Cache Beef toolchain build
+        if: matrix.bundle
+        id: beef-build-cache
+        uses: actions/cache@v4
+        with:
+          path: thirdparty/beef/IDE/dist
+          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}
+
+      - name: Build Beef toolchain (canonical, mirrors bin/build.bat)
+        if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        working-directory: thirdparty/beef
+        run: |
+          call bin\msbuild.bat BeefySysLib\BeefySysLib.vcxproj /p:Configuration="Release Static" /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          call bin\msbuild.bat IDEHelper\IDEHelper.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          IDE\dist\BeefBoot.exe --out="IDE\dist\BeefBuild_boot.exe" --src=IDE\src --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
+
+      - name: Assemble bin/BeefBundle
+        if: matrix.bundle
+        shell: pwsh
+        run: |
+          $beef = (Resolve-Path thirdparty/beef).Path
+          $dist = Join-Path $beef "IDE/dist"
+          $bundle = Join-Path (Resolve-Path .).Path "bin/BeefBundle"
+          if (Test-Path $bundle) { Remove-Item -Recurse -Force $bundle }
+          New-Item -ItemType Directory -Force "$bundle/bin", "$bundle/BeefLibs" | Out-Null
+          Copy-Item "$dist/BeefBuild_boot.exe" "$bundle/bin/BeefBuild.exe" -Force
+          Copy-Item "$dist/Beef042RT64.dll"   "$bundle/bin/" -Force
+          Copy-Item "$dist/Beef042RT64.lib"   "$bundle/bin/" -Force
+          Copy-Item "$dist/IDEHelper64.dll"   "$bundle/bin/IDEHelper64.dll" -Force
+          # The engine's in-process build needs bin/llvm/bin/lld-link.exe — copy the llvm root that holds it.
+          $lld = Get-ChildItem -Path $beef -Recurse -Filter lld-link.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $lld) { throw "lld-link.exe not found under $beef" }
+          Copy-Item $lld.Directory.Parent.FullName "$bundle/bin/llvm" -Recurse -Force
+          if (-not (Test-Path "$bundle/bin/llvm/bin/lld-link.exe")) { throw "bundle missing bin/llvm/bin/lld-link.exe" }
+          Copy-Item "$beef/BeefLibs/corlib" "$bundle/BeefLibs/corlib" -Recurse -Force
+          "Version = 1`nUnversionedLibDirs = [`"../BeefLibs`"]" | Set-Content "$bundle/bin/BeefConfig.toml"
 
       - name: Prepare artifact
         if: matrix.compiler == 'msvc'
