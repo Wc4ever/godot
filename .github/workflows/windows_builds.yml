@@ -186,13 +186,17 @@ jobs:
         shell: pwsh
         run: |
           $beef = "thirdparty/beef"
-          $dist = Join-Path $beef "IDE/dist"
-          New-Item -ItemType Directory -Force $dist | Out-Null
+          # Absolute dist path so we can compare against found files and skip self-copies (some artifacts
+          # — e.g. Beef042RT64.lib from BeefRT — are emitted straight into IDE/dist already).
+          $dist = (New-Item -ItemType Directory -Force (Join-Path $beef "IDE/dist")).FullName
           function Stage([string]$pattern, [string]$dest) {
+            $destPath = Join-Path $dist $dest
             $f = Get-ChildItem -Path $beef -Recurse -Filter $pattern -File -ErrorAction SilentlyContinue |
                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($f) { Copy-Item $f.FullName (Join-Path $dist $dest) -Force; Write-Host "staged $($f.FullName) -> $dest" }
-            else    { Write-Host "::warning::Beef artifact not found: $pattern" }
+            if (-not $f) { Write-Host "::warning::Beef artifact not found: $pattern"; return }
+            if ($f.FullName -ieq $destPath) { Write-Host "already in dist: $dest"; return }
+            Copy-Item $f.FullName $destPath -Force
+            Write-Host "staged $($f.FullName) -> $dest"
           }
           Stage "IDEHelper64.dll" "IDEHelper64.dll"
           Stage "IDEHelper64.lib" "IDEHelper64.lib"
