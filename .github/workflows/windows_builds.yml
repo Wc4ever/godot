@@ -118,11 +118,13 @@ jobs:
         continue-on-error: true
 
       # ---- Beef toolchain (Editor cell only) ----
-      # Mirrors the repo's proven local scripts (build_beef_libs.bat + build_beefrt.bat +
-      # make_beef_bundle.bat). Key detail: the static BeefySysLib that links cleanly against the RT is
-      # BeefySysLib_static.vcxproj (Release) -> ide\dist\x64\Release\BeefySysLib_static.lib. Do NOT use
-      # BeefySysLib.vcxproj "Release Static": that config compiles the Bfp* platform code in (LNK2005
-      # duplicate vs Beef042RT64.lib) and drops the font/input sources (LNK1120 unresolved FTFont/DInput).
+      # Mirrors Beef's own bin/build.bat (Release subset). The lib the bootstrap links as
+      # IDE\dist\BeefySysLib64.lib MUST be the import library of the DYNAMIC BeefySysLib64.dll
+      # (BeefySysLib.vcxproj config Release): that config builds with BFP_NOEXPORT, so it imports the Bfp*
+      # platform funcs from Beef042RT64 instead of redefining them (avoids LNK2005), and links the
+      # font/input code into the DLL (avoids LNK1120 unresolved FTFont/DInput/DSound). Do NOT use the
+      # static libs (BeefySysLib_static.vcxproj, or BeefySysLib.vcxproj "Release Static") -- both pull
+      # Platform.obj's Bfp* in and drop the font/input impls, which is exactly what fails to link.
       # bin\msbuild.bat (vswhere -latest) picks a recent toolset whose STL matches the prebuilt LLVM that
       # IDEHelper links. Then BeefBoot bootstraps BeefBuild_boot.exe. Assembled into bin/BeefBundle below.
       - name: Set up MSVC (Beef toolchain)
@@ -159,29 +161,37 @@ jobs:
             Remove-Item BeefDep3.zip
           }
 
-      - name: Cache Beef toolchain build
+      # Restore + save are split (not actions/cache) so the cache is saved ONLY when the build step
+      # below succeeds: a plain actions/cache saves even on job failure, which previously poisoned the
+      # cache with a half-built IDE/dist and made later runs skip the rebuild. The save step's implicit
+      # success() guard prevents that. Bump the key suffix to invalidate any already-poisoned cache.
+      - name: Restore Beef toolchain build
         if: matrix.bundle
         id: beef-build-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: thirdparty/beef/IDE/dist
-          # -v2: invalidate caches saved by earlier broken toolchain build steps (a failed job still
-          # saves its cache on a miss, which would otherwise restore a poisoned IDE/dist and skip rebuild).
-          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}-v2
+          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}-v3
 
-      - name: Build Beef toolchain (mirrors local build scripts)
+      - name: Build Beef toolchain (mirrors bin/build.bat, Release subset)
         if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
         shell: cmd
         working-directory: thirdparty/beef
         run: |
-          call bin\msbuild.bat BeefySysLib\BeefySysLib_static.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
+          rem BeefySysLib config=Release is the DYNAMIC build -> IDE\dist\BeefySysLib64.dll + its import
+          rem lib IDE\dist\BeefySysLib64.lib (the lib the bootstrap links). No rename needed.
+          call bin\msbuild.bat BeefySysLib\BeefySysLib.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat IDEHelper\IDEHelper.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
-          rem BeefySysLib_static.vcxproj (Release) emits ide\dist\x64\Release\BeefySysLib_static.lib; the
-          rem bootstrap link expects IDE\dist\BeefySysLib64.lib. Stage it (mirrors make_beef_bundle.bat).
-          copy /Y "ide\dist\x64\Release\BeefySysLib_static.lib" "IDE\dist\BeefySysLib64.lib" || exit /b 1
           IDE\dist\BeefBoot.exe -O0 --out="IDE\dist\BeefBuild_boot.exe" --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=IDE\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
+
+      - name: Save Beef toolchain build
+        if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: thirdparty/beef/IDE/dist
+          key: ${{ steps.beef-build-cache.outputs.cache-primary-key }}
 
       - name: Assemble bin/BeefBundle
         if: matrix.bundle
@@ -196,6 +206,8 @@ jobs:
           Copy-Item "$dist/Beef042RT64.dll"   "$bundle/bin/" -Force
           Copy-Item "$dist/Beef042RT64.lib"   "$bundle/bin/" -Force
           Copy-Item "$dist/IDEHelper64.dll"   "$bundle/bin/IDEHelper64.dll" -Force
+          # BeefBuild links BeefySysLib64.dll dynamically (import lib above) -> ship it next to BeefBuild.
+          Copy-Item "$dist/BeefySysLib64.dll" "$bundle/bin/" -Force
           # The engine's in-process build needs bin/llvm/bin/lld-link.exe — copy the llvm root that holds it.
           $lld = Get-ChildItem -Path $beef -Recurse -Filter lld-link.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $lld) { throw "lld-link.exe not found under $beef" }
