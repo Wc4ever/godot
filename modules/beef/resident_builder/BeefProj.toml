@@ -1,0 +1,27 @@
+FileVersion = 1
+Dependencies = {Beefy2D = "*", corlib = "*"}
+
+[Project]
+Name = "BeefBuildLib"
+
+[Configs.Release.Win64]
+TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
+TargetName = "GodotBeefBuild"
+BuildKind = "DynamicLib"
+BeefLibType = "Static"
+CLibType = "Dynamic"
+LTOType = "None"
+OtherLinkFlags = "$(LinkFlags) Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDEHelper64.lib"
+PreprocessorMacros = ["RELEASE", "CLI"]
+
+[[ProjectFolder.Items]]
+Type = "Folder"
+Path = "../IDE/src"
+Name = "ide"
+AutoInclude = true
+
+[[ProjectFolder.Items]]
+Type = "Folder"
+Path = "../BeefBuild/src"
+Name = "beefbuild"
+AutoInclude = true

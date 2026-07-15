@@ -1,0 +1,23 @@
+FileVersion = 1
+Projects = {BeefBuildLib = {Path = "."}, corlib = "*", Beefy2D = {Path = "../BeefLibs/Beefy2D"}, IDEHelper = {Path = "../IDEHelper"}, Debugger64 = {Path = "../Debugger64"}, BeefySysLib = {Path = "../BeefySysLib"}}
+Unlocked = ["corlib"]
+
+[Workspace]
+StartupProject = "BeefBuildLib"
+
+[Configs.Release.Win64]
+Toolset = "Microsoft"
+LTOType = "None"
+AllocStackTraceDepth = 0
+# Full RELEASE runtime for the wrapper: it's a build tool, not user code, so ALL debug/scanner/leak
+# machinery is off. The leak-scanner in particular spawns a background thread on runtime init that
+# deadlocks under the Windows loader lock during LoadLibrary — everything here keeps static-init
+# thread-free and lean so the DLL loads cleanly in-process (load once, never unload).
+EnableObjectDebugFlags = false
+EmitObjectAccessCheck = false
+EnableRealtimeLeakCheck = false
+EmitDynamicCastCheck = false
+AllocType = "CRT"
+CLibType = "Dynamic"
+EmitDebugInfo = "No"
+ConfigSelections = {IDEHelper = {Enabled = false}, Debugger64 = {Enabled = false}, BeefySysLib = {Enabled = false}}

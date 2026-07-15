@@ -171,7 +171,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: thirdparty/beef/IDE/dist
-          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}-v3
+          key: beeftc-${{ env.BEEF_REF }}-${{ runner.os }}-v4
 
       - name: Build Beef toolchain (mirrors bin/build.bat, Release subset)
         if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
@@ -185,6 +185,12 @@ jobs:
           call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           IDE\dist\BeefBoot.exe -O0 --out="IDE\dist\BeefBuild_boot.exe" --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=IDE\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
+          rem Resident-compiler wrapper (GodotBeefBuild.dll): a warm in-process BeefBuild the editor
+          rem loads for fast incremental builds. Source is tracked in the godot module; stage it as a
+          rem BeefBuild sibling (its BeefProj/BeefSpace use ../IDE, ../BeefBuild, ../BeefLibs) and build
+          rem it with the just-bootstrapped BeefBuild. Scanner-off release runtime (see its BeefSpace).
+          xcopy /E /I /Y ..\..\modules\beef\resident_builder BeefBuildLib >nul || exit /b 1
+          IDE\dist\BeefBuild_boot.exe -proddir=BeefBuildLib -config=Release || exit /b 1
 
       - name: Save Beef toolchain build
         if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
@@ -208,6 +214,8 @@ jobs:
           Copy-Item "$dist/IDEHelper64.dll"   "$bundle/bin/IDEHelper64.dll" -Force
           # BeefBuild links BeefySysLib64.dll dynamically (import lib above) -> ship it next to BeefBuild.
           Copy-Item "$dist/BeefySysLib64.dll" "$bundle/bin/" -Force
+          # Resident-compiler wrapper: the editor loads this next to BeefBuild.exe for warm incremental builds.
+          Copy-Item "$dist/GodotBeefBuild.dll" "$bundle/bin/" -Force
           # The engine's in-process build needs bin/llvm/bin/lld-link.exe — copy the llvm root that holds it.
           $lld = Get-ChildItem -Path $beef -Recurse -Filter lld-link.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $lld) { throw "lld-link.exe not found under $beef" }

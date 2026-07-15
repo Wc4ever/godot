@@ -53,6 +53,35 @@ class BeefCompiler {
 	void *dll_handle = nullptr;
 	String _shadow_path; // when non-empty, the loaded DLL is a private copy (real output stays unlocked)
 
+	// Resident builder (GodotBeefBuild.dll) — a warm, in-process BeefBuild whose type system stays
+	// loaded across builds, so an incremental edit skips the ~1.5s frontend (measured ~40ms vs ~3.6s).
+	// Optional and best-effort: if the DLL is absent, the config/workspace differs from what it was
+	// initialized with, or a resident build fails, compile() transparently falls back to spawning
+	// BeefBuild.exe (which also yields full diagnostics). Windows-only for now.
+	void *_resident_handle = nullptr;
+	bool _resident_init_done = false;
+	String _resident_workspace; // workspace the resident builder was Init'd against
+	String _resident_config; // config it was Init'd against
+	typedef int32_t (*ResidentInitFn)(const char *, const char *);
+	typedef int32_t (*ResidentCompileFn)();
+	typedef void (*ResidentMarkChangedFn)(const char *);
+	ResidentInitFn _resident_init = nullptr;
+	ResidentCompileFn _resident_compile = nullptr;
+	ResidentMarkChangedFn _resident_mark_changed = nullptr;
+
+	// Load GodotBeefBuild.dll (next to BeefBuild.exe) and resolve its exports. Idempotent; returns
+	// true once the resident builder is available.
+	bool _load_resident_builder();
+	// Fast path: Init-once + mark user sources changed + Compile via the resident DLL. Returns true
+	// ONLY on a successful resident build; false means "use the spawn fallback" (absent / config
+	// mismatch / build failed).
+	bool _try_resident_compile(const String &p_workspace_dir, const String &p_project_name,
+			const String &p_config, String &r_dll_path);
+	// Recursively mark every user src/*.bf as changed so the warm compiler reparses them (bindings
+	// stay warm). The engine regenerates registrars + the user edits scripts before each build, so
+	// marking all user sources is robust without tracking individual edits.
+	void _mark_user_sources_changed(const String &p_workspace_dir);
+
 	static BeefCompiler *_singleton;
 
 	// Called immediately before FreeLibrary so live Beef objects can be destroyed first.

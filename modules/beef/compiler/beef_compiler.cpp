@@ -392,6 +392,102 @@ void BeefCompiler::ensure_project_files(const String &p_workspace_dir, const Str
 	}
 }
 
+#ifdef WINDOWS_ENABLED
+bool BeefCompiler::_load_resident_builder() {
+	if (_resident_compile != nullptr) {
+		return true; // already loaded and resolved
+	}
+	if (_resident_handle != nullptr) {
+		return false; // loaded once but exports missing — don't retry
+	}
+	if (beef_build_path.is_empty()) {
+		return false;
+	}
+	// GodotBeefBuild.dll ships next to BeefBuild.exe in the bundle.
+	String dll = beef_build_path.get_base_dir().path_join("GodotBeefBuild.dll");
+	if (!FileAccess::exists(dll)) {
+		return false; // no resident builder — spawn path handles everything
+	}
+	// LOAD_WITH_ALTERED_SEARCH_PATH so the wrapper's own dependency (IDEHelper64.dll, which lives in
+	// the bundle dir next to it — not next to godot.exe) resolves from the bundle instead of bin/.
+	HMODULE h = LoadLibraryExW((LPCWSTR)dll.utf16().get_data(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+	if (h == nullptr) {
+		beef_log("BeefCompiler: GodotBeefBuild.dll present but failed to load (err " + itos((int64_t)GetLastError()) + "); using BeefBuild.exe");
+		return false;
+	}
+	_resident_handle = h;
+	_resident_init = (ResidentInitFn)GetProcAddress(h, "GodotBeefBuild_Init");
+	_resident_compile = (ResidentCompileFn)GetProcAddress(h, "GodotBeefBuild_Compile");
+	_resident_mark_changed = (ResidentMarkChangedFn)GetProcAddress(h, "GodotBeefBuild_MarkChanged");
+	if (_resident_init == nullptr || _resident_compile == nullptr || _resident_mark_changed == nullptr) {
+		beef_log("BeefCompiler: GodotBeefBuild.dll missing exports; using BeefBuild.exe");
+		_resident_compile = nullptr;
+		return false;
+	}
+	beef_log("BeefCompiler: resident builder loaded (warm incremental builds enabled)");
+	return true;
+}
+
+void BeefCompiler::_mark_user_sources_changed(const String &p_workspace_dir) {
+	// Recursive walk of src/ for .bf, marking each changed so the warm compiler reparses it. The
+	// ~1027 GodotBindings files are NOT touched, so they stay warm (the whole point).
+	List<String> dirs;
+	dirs.push_back(p_workspace_dir.path_join("src"));
+	while (!dirs.is_empty()) {
+		String dir = dirs.front()->get();
+		dirs.pop_front();
+		Ref<DirAccess> d = DirAccess::open(dir);
+		if (d.is_null()) {
+			continue;
+		}
+		d->list_dir_begin();
+		String name = d->get_next();
+		while (!name.is_empty()) {
+			if (name != "." && name != "..") {
+				String full = dir.path_join(name);
+				if (d->current_is_dir()) {
+					dirs.push_back(full);
+				} else if (name.ends_with(".bf")) {
+					_resident_mark_changed(full.utf8().get_data());
+				}
+			}
+			name = d->get_next();
+		}
+		d->list_dir_end();
+	}
+}
+
+bool BeefCompiler::_try_resident_compile(const String &p_workspace_dir, const String &p_project_name,
+		const String &p_config, String &r_dll_path) {
+	if (!_load_resident_builder()) {
+		return false;
+	}
+	// The resident builder is bound to one workspace+config at Init. If either differs (e.g. a
+	// Release/export build after an editor Debug session), defer to the spawn path.
+	if (_resident_init_done && (_resident_workspace != p_workspace_dir || _resident_config != p_config)) {
+		return false;
+	}
+	if (!_resident_init_done) {
+		if (_resident_init(p_workspace_dir.utf8().get_data(), p_config.utf8().get_data()) != 0) {
+			return false;
+		}
+		_resident_init_done = true;
+		_resident_workspace = p_workspace_dir;
+		_resident_config = p_config;
+		// First build after Init is cold — Init already loaded fresh sources, so no marking needed.
+	} else {
+		// Subsequent build: the headless builder has no file watcher, so tell it what changed.
+		_mark_user_sources_changed(p_workspace_dir);
+	}
+	if (_resident_compile() != 0) {
+		// Resident build failed — fall back to spawn so the Problems panel gets full diagnostics.
+		return false;
+	}
+	r_dll_path = get_dll_path(p_workspace_dir, p_project_name, p_config);
+	return true;
+}
+#endif // WINDOWS_ENABLED
+
 bool BeefCompiler::compile(const String &p_workspace_dir, const String &p_project_name,
 		const String &p_config, String &r_dll_path, Vector<String> &r_errors, String *r_output) {
 	if (!found) {
@@ -412,6 +508,24 @@ bool BeefCompiler::compile(const String &p_workspace_dir, const String &p_projec
 	}
 
 	ensure_project_files(p_workspace_dir, p_project_name);
+
+#ifdef WINDOWS_ENABLED
+	// Fast path: the resident in-process builder keeps the type system warm, so an incremental edit
+	// rebuilds in ~40ms instead of ~3.6s. Succeeds only on a clean resident build; anything else
+	// (DLL absent, config/workspace mismatch, or a build error) returns false and we spawn
+	// BeefBuild.exe below — which also gives the Problems panel its full diagnostics.
+	{
+		String resident_dll;
+		if (_try_resident_compile(p_workspace_dir, p_project_name, p_config, resident_dll)) {
+			r_dll_path = resident_dll;
+			if (r_output) {
+				*r_output = "Beef resident build OK.";
+			}
+			beef_log("BeefCompiler: resident compile OK");
+			return true;
+		}
+	}
+#endif
 
 	List<String> args;
 	args.push_back("-proddir=" + p_workspace_dir);
