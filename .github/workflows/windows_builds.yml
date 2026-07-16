@@ -185,12 +185,6 @@ jobs:
           call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           call bin\msbuild.bat BeefBoot\BeefBoot.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           IDE\dist\BeefBoot.exe -O0 --out="IDE\dist\BeefBuild_boot.exe" --src=BeefBuild\src --src=BeefLibs\corlib\src --src=BeefLibs\Beefy2D\src --src=IDE\src --src=BeefLibs\libgit2\src --define=CLI --define=RELEASE --startup=BeefBuild.Program --linkparams="Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDE\dist\Beef042RT64.lib IDE\dist\IDEHelper64.lib IDE\dist\BeefySysLib64.lib" || exit /b 1
-          rem Resident-compiler wrapper (GodotBeefBuild.dll): a warm in-process BeefBuild the editor
-          rem loads for fast incremental builds. Source is tracked in the godot module; stage it as a
-          rem BeefBuild sibling (its BeefProj/BeefSpace use ../IDE, ../BeefBuild, ../BeefLibs) and build
-          rem it with the just-bootstrapped BeefBuild. Scanner-off release runtime (see its BeefSpace).
-          xcopy /E /I /Y ..\..\modules\beef\resident_builder BeefBuildLib >nul || exit /b 1
-          IDE\dist\BeefBuild_boot.exe -proddir=BeefBuildLib -config=Release || exit /b 1
 
       - name: Save Beef toolchain build
         if: matrix.bundle && steps.beef-build-cache.outputs.cache-hit != 'true'
@@ -198,6 +192,20 @@ jobs:
         with:
           path: thirdparty/beef/IDE/dist
           key: ${{ steps.beef-build-cache.outputs.cache-primary-key }}
+
+      # Built ALWAYS (outside the toolchain cache) so wrapper-source changes always take effect without a
+      # cache-key bump — the toolchain step is cached, and a cache-hit would otherwise serve a stale
+      # GodotBeefBuild.dll. Uses the cached/just-built IDE\dist toolchain (BeefBuild_boot + import libs).
+      # Source is tracked in the godot module; staged as a BeefBuild sibling (its BeefProj/BeefSpace use
+      # ../IDE, ../BeefBuild, ../BeefLibs). Overwrites any cached copy. Scanner-off release runtime; links
+      # Bfp* from Beef042RT64 (see its BeefProj OtherLinkFlags order).
+      - name: Build resident-compiler wrapper
+        if: matrix.bundle
+        shell: cmd
+        working-directory: thirdparty/beef
+        run: |
+          xcopy /E /I /Y ..\..\modules\beef\resident_builder BeefBuildLib >nul || exit /b 1
+          IDE\dist\BeefBuild_boot.exe -proddir=BeefBuildLib -config=Release || exit /b 1
 
       - name: Assemble bin/BeefBundle
         if: matrix.bundle
