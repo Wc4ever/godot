@@ -11,7 +11,7 @@ BuildKind = "DynamicLib"
 BeefLibType = "Dynamic"
 CLibType = "Dynamic"
 LTOType = "None"
-OtherLinkFlags = "$(LinkFlags) Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib Beef042RT64.lib IDEHelper64.lib BeefySysLib64.lib"
+OtherLinkFlags = "$(LinkFlags) Beef042RT64.lib Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDEHelper64.lib"
 PreprocessorMacros = ["RELEASE", "CLI"]
 
 [[ProjectFolder.Items]]
