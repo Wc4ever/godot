@@ -204,6 +204,12 @@ jobs:
         shell: cmd
         working-directory: thirdparty/beef
         run: |
+          rem The wrapper depends on Beefy2D, which links BeefySysLib64.lib from BeefLibs\Beefy2D\dist
+          rem (BeefySysLib's post-build copy target). That dir isn't part of the cached IDE\dist, so on a
+          rem toolchain cache-hit it's missing -> stage it from IDE\dist before building the wrapper.
+          if not exist BeefLibs\Beefy2D\dist mkdir BeefLibs\Beefy2D\dist
+          copy /Y IDE\dist\BeefySysLib64.lib BeefLibs\Beefy2D\dist\ >nul || exit /b 1
+          copy /Y IDE\dist\BeefySysLib64.dll BeefLibs\Beefy2D\dist\ >nul || exit /b 1
           xcopy /E /I /Y ..\..\modules\beef\resident_builder BeefBuildLib >nul || exit /b 1
           IDE\dist\BeefBuild_boot.exe -proddir=BeefBuildLib -config=Release || exit /b 1
 
