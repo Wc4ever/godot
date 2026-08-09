@@ -230,10 +230,14 @@ jobs:
           Copy-Item "$dist/BeefySysLib64.dll" "$bundle/bin/" -Force
           # Resident-compiler wrapper: the editor loads this next to BeefBuild.exe for warm incremental builds.
           Copy-Item "$dist/GodotBeefBuild.dll" "$bundle/bin/" -Force
-          # The engine's in-process build needs bin/llvm/bin/lld-link.exe — copy the llvm root that holds it.
+          # The build needs ONLY bin/llvm/bin/lld-link.exe (the linker). Ship just that, NOT the whole
+          # llvm dir: llvm-ar.exe (the static-lib archiver, ~14MB) is never used — game DLLs are
+          # DynamicLibs linked by lld-link, and StaticLib deps' objects go straight into that link
+          # (verified: a full DynamicLib build succeeds with llvm-ar absent). Saves ~14MB in the bundle.
           $lld = Get-ChildItem -Path $beef -Recurse -Filter lld-link.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $lld) { throw "lld-link.exe not found under $beef" }
-          Copy-Item $lld.Directory.Parent.FullName "$bundle/bin/llvm" -Recurse -Force
+          New-Item -ItemType Directory -Force "$bundle/bin/llvm/bin" | Out-Null
+          Copy-Item $lld.FullName "$bundle/bin/llvm/bin/lld-link.exe" -Force
           if (-not (Test-Path "$bundle/bin/llvm/bin/lld-link.exe")) { throw "bundle missing bin/llvm/bin/lld-link.exe" }
           Copy-Item "$beef/BeefLibs/corlib" "$bundle/BeefLibs/corlib" -Recurse -Force
           "Version = 1`nUnversionedLibDirs = [`"../BeefLibs`"]" | Set-Content "$bundle/bin/BeefConfig.toml"
