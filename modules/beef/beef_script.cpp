@@ -1144,7 +1144,9 @@ bool BeefLanguage::build_project(bool p_rebuild, String &r_output, Vector<String
 	}
 
 	String dll_path;
-	bool ok = compiler->compile(workspace, project, config, dll_path, r_errors, &r_output);
+	// A rebuild just cleaned the build dir; force the spawned BeefBuild.exe (the warm resident can't
+	// build into a deleted dir without crashing). Normal builds keep the fast resident path.
+	bool ok = compiler->compile(workspace, project, config, dll_path, r_errors, &r_output, p_rebuild);
 	return ok;
 }
 

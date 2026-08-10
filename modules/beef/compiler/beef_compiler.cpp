@@ -540,7 +540,8 @@ void BeefCompiler::_write_cache_marker(const String &p_workspace_dir, const Stri
 #endif // WINDOWS_ENABLED
 
 bool BeefCompiler::compile(const String &p_workspace_dir, const String &p_project_name,
-		const String &p_config, String &r_dll_path, Vector<String> &r_errors, String *r_output) {
+		const String &p_config, String &r_dll_path, Vector<String> &r_errors, String *r_output,
+		bool p_prefer_spawn) {
 	if (!found) {
 		String msg = "BeefBuild.exe not found. Install Beef IDE from https://www.beeflang.org/";
 		r_errors.push_back(msg);
@@ -565,7 +566,9 @@ bool BeefCompiler::compile(const String &p_workspace_dir, const String &p_projec
 	// rebuilds in ~40ms instead of ~3.6s. Succeeds only on a clean resident build; anything else
 	// (DLL absent, config/workspace mismatch, or a build error) returns false and we spawn
 	// BeefBuild.exe below — which also gives the Problems panel its full diagnostics.
-	{
+	// A clean rebuild (p_prefer_spawn) always spawns: the warm resident can't survive its build dir
+	// being deleted, and a rebuild is infrequent so spawn latency is fine.
+	if (!p_prefer_spawn) {
 		String resident_dll;
 		if (_try_resident_compile(p_workspace_dir, p_project_name, p_config, resident_dll)) {
 			r_dll_path = resident_dll;

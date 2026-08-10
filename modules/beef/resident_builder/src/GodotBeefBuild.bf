@@ -69,6 +69,10 @@ namespace GodotBeefBuild
 			sApp.mHandledVerb = false;
 			sApp.mFailed = false;
 			sApp.mBuildDone = false;
+			// Keep the app in its just-cleaned state so it never runs the in-process "cache invalid,
+			// clean rebuild" path (IDEApp.bf:12521) — that path access-violates in a resident process.
+			// The warm in-memory type system is authoritative; the on-disk cache is only a speed hint.
+			sApp.mCompileSinceCleanCount = 0;
 			while (!sApp.mBuildDone)
 				sApp.Update(false);
 			return sApp.mFailed ? 1 : 0;

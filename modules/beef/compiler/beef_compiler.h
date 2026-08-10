@@ -130,8 +130,11 @@ public:
 	// Run BeefBuild on p_workspace_dir (auto-creates BeefSpace.toml + BeefProj.toml if missing).
 	// On success, r_dll_path holds the output DLL path. If r_output is non-null it receives the full
 	// (raw) BeefBuild stdout/stderr text regardless of success, for display in a build panel.
+	// p_prefer_spawn forces the robust spawned BeefBuild.exe and skips the in-process resident builder
+	// (used for a clean rebuild, whose delete would corrupt the warm resident's view of the cache).
 	bool compile(const String &p_workspace_dir, const String &p_project_name,
-			const String &p_config, String &r_dll_path, Vector<String> &r_errors, String *r_output = nullptr);
+			const String &p_config, String &r_dll_path, Vector<String> &r_errors, String *r_output = nullptr,
+			bool p_prefer_spawn = false);
 
 	// Deterministic path of the wasm SIDE_MODULE the web export ships:
 	// <workspace>/build/<config>_wasm32/<project>/<project>.side.wasm
