@@ -69,6 +69,9 @@ class BeefCompiler {
 	ResidentCompileFn _resident_compile = nullptr;
 	ResidentMarkChangedFn _resident_mark_changed = nullptr;
 
+	// Pin our Beef DLLs by full path so the process uses them, not a stray installed Beef on PATH
+	// (Windows resolves DLLs by base name). No-op off Windows.
+	void _pin_toolchain_runtime();
 	// Load GodotBeefBuild.dll (next to BeefBuild.exe) and resolve its exports. Idempotent; returns
 	// true once the resident builder is available.
 	bool _load_resident_builder();

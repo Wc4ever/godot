@@ -74,6 +74,7 @@ bool BeefCompiler::find_beef_tools(const String &p_override_path) {
 			beef_build_path = p_override_path;
 			found = true;
 			_singleton = this;
+			_pin_toolchain_runtime();
 			beef_log("BeefCompiler: using configured BeefBuild");
 			return true;
 		} else {
@@ -93,6 +94,7 @@ bool BeefCompiler::find_beef_tools(const String &p_override_path) {
 			beef_build_path = candidate;
 			found = true;
 			_singleton = this;
+			_pin_toolchain_runtime();
 			beef_log("BeefCompiler: using bundled BeefBuild");
 			return true;
 		}
@@ -390,6 +392,22 @@ void BeefCompiler::ensure_project_files(const String &p_workspace_dir, const Str
 					"PICLevel = \"Big\"\n");
 		}
 	}
+}
+
+void BeefCompiler::_pin_toolchain_runtime() {
+#ifdef WINDOWS_ENABLED
+	// Pin our Beef DLLs by full path so the process binds "Beef042RT64.dll" etc. to these, not a
+	// stray installed Beef on PATH (Windows resolves DLLs by base name — first loaded wins). Handles
+	// are intentionally leaked for the process lifetime.
+	String dir = beef_build_path.get_base_dir();
+	const char *dlls[] = { "BeefySysLib64.dll", "Beef042RT64.dll", "Beef042Dbg64.dll", "IDEHelper64.dll" };
+	for (const char *name : dlls) {
+		String p = dir.path_join(name);
+		if (FileAccess::exists(p)) {
+			LoadLibraryExW((LPCWSTR)p.utf16().get_data(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+		}
+	}
+#endif
 }
 
 #ifdef WINDOWS_ENABLED
