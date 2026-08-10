@@ -486,6 +486,7 @@ bool BeefCompiler::_try_resident_compile(const String &p_workspace_dir, const St
 		return false;
 	}
 	if (!_resident_init_done) {
+		_clean_if_foreign_cache(p_workspace_dir, p_config);
 		if (_resident_init(p_workspace_dir.utf8().get_data(), p_config.utf8().get_data()) != 0) {
 			return false;
 		}
@@ -502,7 +503,39 @@ bool BeefCompiler::_try_resident_compile(const String &p_workspace_dir, const St
 		return false;
 	}
 	r_dll_path = get_dll_path(p_workspace_dir, p_project_name, p_config);
+	_write_cache_marker(p_workspace_dir, p_config);
 	return true;
+}
+
+void BeefCompiler::_clean_if_foreign_cache(const String &p_workspace_dir, const String &p_config) {
+	String build_out = p_workspace_dir.path_join("build").path_join(p_config + "_Win64");
+	if (!DirAccess::dir_exists_absolute(build_out)) {
+		return; // already cold
+	}
+	String want = itos(FileAccess::get_modified_time(beef_build_path));
+	String marker = build_out.path_join(".beef_toolchain");
+	String have;
+	if (FileAccess::exists(marker)) {
+		Ref<FileAccess> f = FileAccess::open(marker, FileAccess::READ);
+		if (f.is_valid()) {
+			have = f->get_line();
+		}
+	}
+	if (have != want) {
+		beef_log("BeefCompiler: build cache is from a different BeefBuild — cleaning before resident build");
+		clean_build(p_workspace_dir, p_config);
+	}
+}
+
+void BeefCompiler::_write_cache_marker(const String &p_workspace_dir, const String &p_config) {
+	String build_out = p_workspace_dir.path_join("build").path_join(p_config + "_Win64");
+	if (!DirAccess::dir_exists_absolute(build_out)) {
+		return;
+	}
+	Ref<FileAccess> f = FileAccess::open(build_out.path_join(".beef_toolchain"), FileAccess::WRITE);
+	if (f.is_valid()) {
+		f->store_string(itos(FileAccess::get_modified_time(beef_build_path)));
+	}
 }
 #endif // WINDOWS_ENABLED
 

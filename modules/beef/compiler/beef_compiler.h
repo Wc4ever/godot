@@ -80,6 +80,10 @@ class BeefCompiler {
 	// mismatch / build failed).
 	bool _try_resident_compile(const String &p_workspace_dir, const String &p_project_name,
 			const String &p_config, String &r_dll_path);
+	// A build cache from a different BeefBuild crashes the resident's in-process clean-rebuild; clean
+	// it (once) when a toolchain-version marker mismatches, then record the marker after a good build.
+	void _clean_if_foreign_cache(const String &p_workspace_dir, const String &p_config);
+	void _write_cache_marker(const String &p_workspace_dir, const String &p_config);
 	// Recursively mark every user src/*.bf as changed so the warm compiler reparses them (bindings
 	// stay warm). The engine regenerates registrars + the user edits scripts before each build, so
 	// marking all user sources is robust without tracking individual edits.
