@@ -8,10 +8,12 @@ Name = "BeefBuildLib"
 TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
 TargetName = "GodotBeefBuild"
 BuildKind = "DynamicLib"
-BeefLibType = "Dynamic"
+# Static Beef runtime: isolates the wrapper's runtime from the game DLL's Beef042RT64.dll,
+# so loading a compiled game DLL in-editor doesn't re-init the same runtime (double-init aborts).
+BeefLibType = "Static"
 CLibType = "Dynamic"
 LTOType = "None"
-OtherLinkFlags = "$(LinkFlags) Beef042RT64.lib Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDEHelper64.lib"
+OtherLinkFlags = "$(LinkFlags) Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib IDEHelper64.lib"
 PreprocessorMacros = ["RELEASE", "CLI"]
 
 [[ProjectFolder.Items]]

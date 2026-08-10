@@ -197,13 +197,16 @@ jobs:
       # cache-key bump — the toolchain step is cached, and a cache-hit would otherwise serve a stale
       # GodotBeefBuild.dll. Uses the cached/just-built IDE\dist toolchain (BeefBuild_boot + import libs).
       # Source is tracked in the godot module; staged as a BeefBuild sibling (its BeefProj/BeefSpace use
-      # ../IDE, ../BeefBuild, ../BeefLibs). Overwrites any cached copy. Scanner-off release runtime; links
-      # Bfp* from Beef042RT64 (see its BeefProj OtherLinkFlags order).
+      # ../IDE, ../BeefBuild, ../BeefLibs). Overwrites any cached copy. Scanner-off release runtime; static
+      # Beef runtime (Beef042RT64_s.lib) so it doesn't share Beef042RT64.dll with the loaded game DLL.
       - name: Build resident-compiler wrapper
         if: matrix.bundle
         shell: cmd
         working-directory: thirdparty/beef
         run: |
+          rem Static Beef runtime lib the wrapper links (BeefLibType="Static"). Built here (always-run) so
+          rem it exists on a toolchain cache-hit too. Isolates the wrapper's runtime from the game DLL's.
+          call bin\msbuild.bat BeefRT\BeefRT.vcxproj /p:Configuration="Release Static" /p:Platform=x64 /p:SolutionDir=%CD%\ /v:m || exit /b 1
           rem The wrapper depends on Beefy2D, which links BeefySysLib64.lib from BeefLibs\Beefy2D\dist
           rem (BeefySysLib's post-build copy target). That dir isn't part of the cached IDE\dist, so on a
           rem toolchain cache-hit it's missing -> stage it from IDE\dist before building the wrapper.
